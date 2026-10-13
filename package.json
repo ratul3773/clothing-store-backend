@@ -1,0 +1,36 @@
+{
+  "name": "clothing-store-backend",
+  "version": "1.0.0",
+  "description": "",
+  "homepage": "https://github.com/ratul3773/clothing-store-backend#readme",
+  "bugs": {
+    "url": "https://github.com/ratul3773/clothing-store-backend/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ratul3773/clothing-store-backend.git"
+  },
+  "license": "ISC",
+  "author": "Ratul",
+  "type": "commonjs",
+  "main": "./src/server.ts",
+  "scripts": {
+   "dev": "tsx watch src/server.ts",
+    "postinstall": "prisma generate",
+    "seed": "npx tsx src/utils/seed.ts",
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "build": "tsc && cp -r src/utils/templates dist/utils/templates",
+    "start": "node dist/server.js",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "dotenv": "^18.0.7",
+    "express": "^5.3.0"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.6",
+    "@types/node": "^26.6.5",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2"
+  }
+}
