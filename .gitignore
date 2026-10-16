@@ -1,8 +1,9 @@
 node_modules
 .env
 dist
-/generated/prisma
+src/generated/prisma
 .agents
 .claude
 .windsurf
 prisma/migrations
+src/lib/auth.test.ts
