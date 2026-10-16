@@ -6,10 +6,8 @@ to add more categories later.
 
 ## Project status
 
-**Current stage:** Backend foundation and development environment setup.
-
-Database, authentication, payment, SMS, and courier integrations are
-planned features unless explicitly implemented in the codebase.
+**Current stage:** Backend foundation with Better Auth email/password
+authentication and email OTP verification.
 
 ## Technology stack
 
@@ -17,8 +15,9 @@ planned features unless explicitly implemented in the codebase.
 -   TypeScript
 -   Express
 -   `tsx` for development
--   PostgreSQL (planned)
--   Prisma (planned)
+-   PostgreSQL with Prisma ORM 7
+-   Better Auth with email OTP verification
+-   Nodemailer SMTP delivery for verification email
 
 ## Getting started
 
@@ -46,9 +45,27 @@ Create `.env` based on `.env.example`.
 ``` env
 NODE_ENV=development
 PORT=5000
+DATABASE_URL="your_postgresql_connection_string"
+BETTER_AUTH_SECRET="a-long-random-secret"
+BETTER_AUTH_URL="http://localhost:5000"
+FRONTEND_URL="http://localhost:3000"
+SMTP_HOST="smtp.example.com"
+SMTP_PORT=587
+SMTP_SECURE=false
+SMTP_USER="your_smtp_username"
+SMTP_PASS="your_smtp_password"
+SMTP_FROM="Clothing Store <no-reply@example.com>"
 ```
 
 Never commit `.env` or real secrets.
+`SMTP_FROM` is the sender address; the older `EMAIL_FROM` name is also accepted.
+Configure a real SMTP provider before accepting registrations. Email
+verification remains mandatory if SMTP is unavailable; signup will fail
+instead of reporting that an email was sent.
+For PostgreSQL URLs that currently use `sslmode=require`, use
+`sslmode=verify-full` to keep the current strict certificate and hostname
+verification behavior explicit and avoid the `pg-connection-string` warning.
+If the URL already has query parameters, append it with `&` instead of `?`.
 
 ### 4. Run the development server
 
@@ -60,6 +77,7 @@ npm run dev
 
 ``` bash
 npm run typecheck
+npm test
 npm run build
 ```
 
@@ -69,6 +87,7 @@ npm run build
   --------------------- -----------------------------------------------
   `npm run dev`         Run the server in watch mode using `tsx`
   `npm run typecheck`   Check TypeScript types without emitting files
+  `npm test`            Run Better Auth authentication tests
   `npm run build`       Compile TypeScript into `dist/`
   `npm start`           Run the compiled server from `dist/server.js`
 
@@ -126,11 +145,35 @@ rather than creating empty files for every planned feature.
 
 ### Customer accounts and authentication
 
--   Registration collects a phone number.
--   Planned login methods: phone OTP, email/password, and Google login.
+-   Registration requires a name, email, password (at least 12
+    characters), and Bangladesh phone number. Phone numbers are normalized
+    to `+880...`; phone OTP is not used.
+-   Email verification uses Better Auth's email OTP plugin. Codes expire
+    after five minutes, are hashed in Better Auth's verification storage,
+    rotate on resend, and are rate limited. An unverified account cannot
+    sign in or receive a session.
+-   Sign in uses email and password; sessions are persisted by Better Auth
+    and stored in HttpOnly cookies.
 -   Guest checkout is supported.
 -   Guest orders may be linked to a later account only after securely
     verifying ownership.
+
+The backend mounts Better Auth under `/api/auth`. The browser can use the
+official Better Auth client with `baseURL` set to `${API_URL}/api/auth` and
+credentials enabled, or call these Better Auth endpoints directly:
+
+- `POST /api/auth/sign-up/email` with `{ name, email, password, phone }`.
+  The backend also accepts Better Auth's `phoneNumber` field; either
+  property accepts English or Bangla digits and is normalized before storage.
+- `POST /api/auth/email-otp/verify-email` with `{ email, otp }`
+- `POST /api/auth/email-otp/send-verification-otp` with
+  `{ email, type: "email-verification" }`
+- `POST /api/auth/sign-in/email` with `{ email, password }`
+- `POST /api/auth/sign-out`
+- `GET /api/auth/get-session`
+
+For a cross-origin frontend, send requests with credentials enabled and use
+the configured `FRONTEND_URL`; production cookies require HTTPS.
 
 ### Products and inventory
 
@@ -201,10 +244,19 @@ implemented.
 
   `PORT`                  Now                     HTTP server port
 
-  `DATABASE_URL`          Database setup          PostgreSQL connection
+  `DATABASE_URL`          Required                PostgreSQL connection
                                                   string for Prisma
 
-  `FRONTEND_URL`          CORS setup              Allowed frontend origin
+  `BETTER_AUTH_SECRET`    Required                Better Auth signing and
+                                                  OTP hashing secret
+  `BETTER_AUTH_URL`       Required                Public backend origin
+  `FRONTEND_URL`          Required                Allowed frontend origin
+  `SMTP_HOST`             Required                SMTP server hostname
+  `SMTP_PORT`             Required                SMTP server port
+  `SMTP_SECURE`           Required                Whether SMTP uses TLS
+  `SMTP_USER`             Required                SMTP username
+  `SMTP_PASS`             Required                SMTP password
+  `SMTP_FROM`             Required                Transactional sender
 
   Payment, SMS, OAuth,    Integration setup       Add only when those
   and storage secrets                             services are configured
@@ -231,7 +283,7 @@ environment files.
 -   [ ] Set up PostgreSQL and Prisma
 -   [ ] Design and migrate the initial database schema
 -   [ ] Add centralized error handling and request validation
--   [ ] Implement authentication and authorization
+-   [x] Implement email/password authentication and email OTP verification
 -   [ ] Implement products, categories, variants, and inventory
 -   [ ] Implement cart and checkout
 -   [ ] Implement order confirmation and cancellation
