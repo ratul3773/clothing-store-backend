@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html>
+<body style="font-family:Arial,Helvetica,sans-serif;background:#f4f4f7;padding:40px;">
+
+<div style="max-width:600px;margin:auto;background:#fff;padding:40px;border-radius:8px;">
+
+<h2 style="color:#f59e0b;">
+<%= documentType %> Expiry Reminder
+</h2>
+
+<p>Hello,</p>
+
+<p>
+Your <strong><%= documentType %></strong> <%= documentType === "Emirates ID" ? "has expired" : "is expiring soon" %> on
+<strong><%= expiryDate %></strong>.
+</p>
+
+<p>
+<% if (documentType === "Emirates ID") { %>
+Please ensure to renew your Emirates ID within <%= gracePeriodDays %> days to avoid any inconvenience.
+</p>
+<% } else { %>
+Please ensure to renew your <%= documentType %> before the expiry date to avoid any interruption to your account.
+</p>
+<% } %>
+
+<p>Thank you,<br><%= appName %></p>
+
+</div>
+
+</body>
+</html>
