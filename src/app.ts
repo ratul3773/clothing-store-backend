@@ -4,6 +4,8 @@ import { prisma } from "./lib/prisma";
 import cors from "cors";
 import config from "./config/env";
 import { toNodeHandler } from "better-auth/node";
+import router from "./app/routes";
+import globalErrorHandler from "./app/middlewares/globalErrorHandler";
 
 const app = express();
 
@@ -33,6 +35,8 @@ app.get("/", (_req, res) => {
   });
 });
 
+app.use("/api/v1", router);
+
 app.get("/api/v1/health", (_req, res) => {
   res.status(200).json({
     success: true,
@@ -57,5 +61,7 @@ app.get("/api/v1/health/ready", async (_req, res) => {
     });
   }
 });
+
+app.use(globalErrorHandler);
 
 export default app;
