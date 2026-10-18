@@ -16,6 +16,11 @@ export default {
     expires_in: process.env.JWT_EXPIRES_IN,
     refresh_expires_in: process.env.JWT_REFRESH_EXPIRES_IN,
   },
+  better_auth: {
+    secret: process.env.BETTER_AUTH_SECRET,
+    url: process.env.BETTER_AUTH_URL as string,
+    api_key: process.env.BETTER_AUTH_API_KEY,
+  },
   bunny_cdn: {
     access_key: process.env.BUNNY_CDN_ACCESS_KEY as string,
     storage_zone: process.env.BUNNY_CDN_STORAGE_ZONE as string,

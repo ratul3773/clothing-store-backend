@@ -1,13 +1,10 @@
 
-import "dotenv/config";
-
 import app from "./app";
 
 const port = Number(process.env.PORT ?? 5000);
 
 const server = app.listen(port, () => {
-  console.log(`Server running at http://localhost:${port}`);
-  console.log(`Health check: http://localhost:${port}/api/v1/health`);
+  console.log(`Server listening at http://localhost:${port}`);
 });
 
 function shutdown(signal: string) {
