@@ -39,18 +39,12 @@ const verifyEmail = async (email: string, otp: string) => {
     if (!user) {
         throw new ApiError(httpStatus.NOT_FOUND, "User not found");
     }
-    const result = await auth.api.verifyEmailOTP({
+    await auth.api.verifyEmailOTP({
         body: {
             email: email, // required, Email address to send the OTP.
             otp: otp, // required, The OTP to verify.
         },
     });
-    // if (result.status && !result.user.emailVerified) {
-    //     await prisma.user.update({
-    //         where: { email },
-    //         data: { emailVerified: true },
-    //     });
-    // }
 };
 
 const LoginUser = async (email: string, password: string): Promise<IAuthResponse> => {
@@ -68,6 +62,7 @@ const LoginUser = async (email: string, password: string): Promise<IAuthResponse
         email: result.user.email,
     };
 };
+
 
 export const AuthService = {
     RegisterUser,

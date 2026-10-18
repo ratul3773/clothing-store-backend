@@ -4,31 +4,52 @@ import { prisma } from "../lib/prisma"; // your prisma client instance
 import { Role } from "../generated/prisma/enums";
 import { emailOTP } from "better-auth/plugins";
 import { sendMail } from "../utils/sendMail";
+import { createAuthMiddleware, APIError } from "better-auth/api";
 
 export const auth = betterAuth({
+    trustedOrigins: ["http://localhost:3000"],
     database: prismaAdapter(prisma, {
         provider: "postgresql",
     }),
     emailAndPassword: {
         enabled: true,
         requireEmailVerification: true,
-        onExistingUserSignUp: async ({ user }, request) => {
-      sendMail({
-        to: user.email,
-        subject: "Sign-up attempt with your email",
-        template: "existing-user-signup",
-        data: {
-          name: user.name,
-          email: user.email,
+        onExistingUserSignUp:async ({ user }) => {
+            if (user.emailVerified) {
+                return;
+            }
         },
-      });
-    },
     },
     emailVerification: {
         sendOnSignUp: true,
         sendOnSignIn: true,
         autoSignInAfterVerification: true,
     },
+    session: {
+        expiresIn: 7 * 24 * 60 * 60, // 7 days in seconds
+        updateAge: 24 * 60 * 60, // 24 hours in seconds
+        cookieCache: {
+            enabled: true,
+            maxAge: 5 * 60,
+            strategy: "jwt", 
+        },
+    },
+    hooks: {
+    before: createAuthMiddleware(async (ctx) => {
+      if (ctx.path !== "/sign-up/email") return;
+
+      const email = String(ctx.body?.email ?? "").toLowerCase();
+      if (!email) return;
+
+      const existing = await prisma.user.findUnique({ where: { email } });
+      if (existing) {
+        throw new APIError("BAD_REQUEST", {
+          message: "An account with this email already exists",
+          code: "USER_ALREADY_EXISTS",
+        });
+      }
+    }),
+  },
     user:{
         additionalFields: {
             role: {
@@ -60,6 +81,9 @@ export const auth = betterAuth({
                             expiryMinutes: 3,
                         }
                     });
+                }
+                if(user && user.emailVerified) {
+                    return;
                 }
             }
             },

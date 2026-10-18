@@ -1,9 +1,11 @@
 
 import express from "express";
-import { prisma } from "./lib/prisma";
 import cors from "cors";
-import config from "./config/env";
 import { toNodeHandler } from "better-auth/node";
+
+import { prisma } from "./lib/prisma";
+import config from "./config/env";
+import { auth } from "./lib/auth";
 import router from "./app/routes";
 import globalErrorHandler from "./app/middlewares/globalErrorHandler";
 
@@ -11,20 +13,22 @@ const app = express();
 
 app.disable("x-powered-by");
 
+// 1. CORS must run before Better Auth.
 app.use(
   cors({
-    origin: config.frontend_url ?? "http://localhost:3000",
-    methods: ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    origin: "http://localhost:3000",
     credentials: true,
-  })
+    allowedHeaders: [
+      "Content-Type",
+      "Authorization",
+    ],
+  }),
 );
 
-app.use("/api/auth", (req, _res, next) => {
-  req.headers["x-forwarded-for"] = req.ip;
-  next();
-});
+// 2. Mount Better Auth before body parsers.
+app.all("/api/auth/{*splat}", toNodeHandler(auth));
 
-
+// 3. Body parsers for your other Express routes.
 app.use(express.json({ limit: "1mb" }));
 app.use(express.urlencoded({ extended: true, limit: "1mb" }));
 
@@ -44,6 +48,7 @@ app.get("/api/v1/health", (_req, res) => {
     timestamp: new Date().toISOString(),
   });
 });
+
 app.get("/api/v1/health/ready", async (_req, res) => {
   try {
     await prisma.$queryRaw`SELECT 1`;
