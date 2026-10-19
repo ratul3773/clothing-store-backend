@@ -34,6 +34,15 @@ export const auth = betterAuth({
             strategy: "jwt", 
         },
     },
+    databaseHooks: {
+    user: {
+      create: {
+        after: async (user) => {
+          await prisma.customer.create({ data: { userId: user.id } });
+        },
+      },
+    },
+  },
     hooks: {
     before: createAuthMiddleware(async (ctx) => {
       if (ctx.path !== "/sign-up/email") return;
