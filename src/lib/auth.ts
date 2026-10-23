@@ -25,15 +25,42 @@ export const auth = betterAuth({
         sendOnSignIn: true,
         autoSignInAfterVerification: true,
     },
+    rateLimit: {
+        enabled: true,
+        storage: "database",
+        customRules: {
+            "/email-otp/send-verification-otp": {
+                window: 180,
+                max: 1,
+            },
+            "/sign-in/email": {
+                window: 15,
+                max: 3,
+            },
+            "/sign-up/email": {
+                window: 15,
+                max: 3,
+            },
+        },
+    },
     session: {
         expiresIn: 7 * 24 * 60 * 60, // 7 days in seconds
         updateAge: 24 * 60 * 60, // 24 hours in seconds
         cookieCache: {
             enabled: true,
             maxAge: 5 * 60,
-            strategy: "jwt", 
+            strategy: "jwt",
         },
     },
+    databaseHooks: {
+    user: {
+      create: {
+        after: async (user) => {
+          await prisma.customer.create({ data: { userId: user.id } });
+        },
+      },
+    },
+  },
     hooks: {
     before: createAuthMiddleware(async (ctx) => {
       if (ctx.path !== "/sign-up/email") return;
