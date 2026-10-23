@@ -1,3 +1,4 @@
+
 enum Role {
   CUSTOMER
   ADMIN
@@ -9,7 +10,7 @@ model User {
   email         String
   emailVerified Boolean   @default(false)
   image         String?
-  role          Role?       @default(CUSTOMER)
+  role          Role?     @default(CUSTOMER)
   phone         String?
   isDeleted     Boolean   @default(false)
   deletedAt     DateTime?
@@ -17,7 +18,7 @@ model User {
   updatedAt     DateTime  @updatedAt
   sessions      Session[]
   accounts      Account[]
-  customer     Customer?
+  customer      Customer?
 
   @@unique([email])
   @@map("user")
@@ -69,4 +70,14 @@ model Verification {
 
   @@index([identifier])
   @@map("verification")
+}
+
+model RateLimit {
+  id          String @id
+  key         String
+  count       Int
+  lastRequest BigInt
+
+  @@unique([key])
+  @@map("rateLimit")
 }
