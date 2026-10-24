@@ -1,7 +1,7 @@
 
 enum Role {
-  CUSTOMER
-  ADMIN
+  customer
+  admin
 }
 
 model User {
@@ -10,7 +10,7 @@ model User {
   email         String
   emailVerified Boolean   @default(false)
   image         String?
-  role          Role?     @default(CUSTOMER)
+  role          Role?     @default(customer)
   phone         String?
   isDeleted     Boolean   @default(false)
   deletedAt     DateTime?
@@ -21,6 +21,7 @@ model User {
   customer      Customer?
 
   @@unique([email])
+  @@unique([phone])
   @@map("user")
 }
 

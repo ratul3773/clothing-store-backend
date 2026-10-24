@@ -66,12 +66,19 @@ export const auth = betterAuth({
       if (ctx.path !== "/sign-up/email") return;
 
       const email = String(ctx.body?.email ?? "").toLowerCase();
+      const phone = String(ctx.body?.phone ?? "").toLowerCase();
       if (!email) return;
-
       const existing = await prisma.user.findUnique({ where: { email } });
       if (existing) {
         throw new APIError("BAD_REQUEST", {
           message: "An account with this email already exists",
+          code: "USER_ALREADY_EXISTS",
+        });
+      }
+      const existingPhone = await prisma.user.findUnique({ where: { phone } });
+      if (existingPhone) {
+        throw new APIError("BAD_REQUEST", {
+          message: "An account with this phone number already exists",
           code: "USER_ALREADY_EXISTS",
         });
       }
@@ -81,7 +88,7 @@ export const auth = betterAuth({
         additionalFields: {
             role: {
                 type: "string",
-                default: Role.CUSTOMER,
+                default: Role.customer,
             },
             phone: {
                 type: "string",
