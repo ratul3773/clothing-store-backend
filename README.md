@@ -6,8 +6,8 @@ to add more categories later.
 
 ## Project status
 
-**Current stage:** Backend foundation with Better Auth email/password
-authentication and email OTP verification.
+**Current stage:** Authentication plus admin catalogue, variant inventory,
+product offers, image uploads, and public product/category APIs.
 
 ## Technology stack
 
@@ -18,6 +18,8 @@ authentication and email OTP verification.
 -   PostgreSQL with Prisma ORM 7
 -   Better Auth with email OTP verification
 -   Nodemailer SMTP delivery for verification email
+-   Zod request validation
+-   Local disk storage in development and Bunny CDN in production
 
 ## Getting started
 
@@ -55,6 +57,18 @@ SMTP_SECURE=false
 SMTP_USER="your_smtp_username"
 SMTP_PASS="your_smtp_password"
 SMTP_FROM="Clothing Store <no-reply@example.com>"
+
+STORAGE_DRIVER=local
+UPLOAD_DIR=uploads
+UPLOAD_PUBLIC_BASE_URL="http://localhost:5000/uploads"
+MAX_IMAGE_SIZE_MB=5
+MAX_IMAGES_PER_PRODUCT=8
+
+# Required when STORAGE_DRIVER=bunny, and automatically in production.
+BUNNY_CDN_ACCESS_KEY=""
+BUNNY_CDN_STORAGE_ZONE=""
+BUNNY_CDN_PULL_URL=""
+BUNNY_STORAGE_ENDPOINT="https://storage.bunnycdn.com"
 ```
 
 Never commit `.env` or real secrets.
@@ -67,13 +81,31 @@ For PostgreSQL URLs that currently use `sslmode=require`, use
 verification behavior explicit and avoid the `pg-connection-string` warning.
 If the URL already has query parameters, append it with `&` instead of `?`.
 
-### 4. Run the development server
+Development uploads are written under `UPLOAD_DIR` and served from `/uploads`.
+Production startup rejects local storage: set `STORAGE_DRIVER=bunny` and provide
+all three Bunny values. Bunny keys are secrets and must never be committed.
+
+### 4. Create the first admin
+
+Register normally, then promote the account with:
+
+``` bash
+ADMIN_EMAIL="admin@example.com" \
+ADMIN_PASSWORD="a-strong-password" \
+npm run admin:bootstrap
+```
+
+On PowerShell, set `$env:ADMIN_EMAIL`, `$env:ADMIN_PASSWORD`, and optionally
+`$env:ADMIN_NAME` / `$env:ADMIN_PHONE` in the current shell before running the
+command. The script creates or updates a verified admin credential account.
+
+### 5. Run the development server
 
 ``` bash
 npm run dev
 ```
 
-### 5. Check the code
+### 6. Check the code
 
 ``` bash
 npm run typecheck
@@ -81,15 +113,20 @@ npm test
 npm run build
 ```
 
+Unit tests do not touch the database. To run the catalogue database flow test
+against `DATABASE_URL`, set `RUN_DB_TESTS=true`; it creates and removes its own
+test records.
+
 ## Available scripts
 
-  Script                Purpose
-  --------------------- -----------------------------------------------
-  `npm run dev`         Run the server in watch mode using `tsx`
-  `npm run typecheck`   Check TypeScript types without emitting files
-  `npm test`            Run Better Auth authentication tests
-  `npm run build`       Compile TypeScript into `dist/`
-  `npm start`           Run the compiled server from `dist/server.js`
+  Script                  Purpose
+  ----------------------- -------------------------------------------------
+  `npm run dev`           Run the server in watch mode using `tsx`
+  `npm run typecheck`     Check TypeScript types without emitting files
+  `npm test`              Run unit tests (and skipped DB tests by default)
+  `npm run admin:bootstrap` Create or promote the admin account
+  `npm run build`         Compile TypeScript into `dist/`
+  `npm start`             Run the compiled server from `dist/server.js`
 
 Make sure the scripts in `package.json` match these commands.
 
@@ -177,10 +214,42 @@ the configured `FRONTEND_URL`; production cookies require HTTPS.
 
 ### Products and inventory
 
--   Initial catalogue: men's shirts and pants.
--   Products may have size and color variants.
--   Regular prices, offer prices, and stock management.
--   The backend validates prices and variants.
+-   Products use one regular price for all variants; amounts are integer
+    poisha. An active offer supplies the effective selling price.
+-   Products move `DRAFT -> ACTIVE -> DRAFT` or `ARCHIVED`; archive is the
+    normal removal path. Only unused drafts can be hard deleted.
+-   Admins supply the product code only; URL slugs are generated from the
+    product or category name and variant SKUs from the product code, colour,
+    and size. All are made unique automatically.
+-   Colours and sizes form variants with unique SKUs and case-insensitive
+    uniqueness. Stock is tracked as `onHand`, `reserved`, and available.
+-   Every stock adjustment writes an immutable movement row in the same
+    transaction. Stock cannot fall below zero or the reserved quantity.
+-   Product offers cannot overlap, must be lower than the regular price, and
+    are deactivated rather than deleted.
+-   Images are uploaded to the server. JPEG, PNG, WebP, and AVIF are accepted,
+    with configurable count and size limits.
+-   Public responses only expose active, published products in active category
+    trees. Internal stock and storage keys are never returned publicly.
+
+Catalogue endpoints:
+
+- `GET /api/v1/products` and `GET /api/v1/products/:slug`
+- `GET /api/v1/categories` and `GET /api/v1/categories/:slug`
+- `GET|POST|PATCH|DELETE /api/v1/admin/categories`
+- `GET|POST|PATCH|DELETE /api/v1/admin/products`
+- `POST /api/v1/admin/products/:id/publish|unpublish|archive|restore`
+- `POST|PATCH|DELETE /api/v1/admin/products/:id/colors[/:colorId]`
+- `POST|PATCH|DELETE /api/v1/admin/products/:id/variants[/:variantId]`
+- `POST /api/v1/admin/products/:id/variants/:variantId/stock`
+- `GET /api/v1/admin/products/:id/variants/:variantId/movements`
+- `POST|PATCH|DELETE /api/v1/admin/products/:id/offers[/:offerId]`
+- `POST /api/v1/admin/products/:id/images`
+- `PATCH|DELETE /api/v1/admin/products/:id/images/:imageId`
+- `PATCH /api/v1/admin/products/:id/images/reorder`
+
+Admin routes require a verified admin session, a trusted origin for unsafe
+methods, and send credentials/cookies.
 
 ### Cart and checkout
 
@@ -257,9 +326,24 @@ implemented.
   `SMTP_USER`             Required                SMTP username
   `SMTP_PASS`             Required                SMTP password
   `SMTP_FROM`             Required                Transactional sender
+  `STORAGE_DRIVER`        Optional                `local` or `bunny`;
+                                                  production requires
+                                                  `bunny`
+  `UPLOAD_DIR`            Local storage           Local upload directory
+  `UPLOAD_PUBLIC_BASE_URL` Local storage          Public `/uploads` base URL
+  `MAX_IMAGE_SIZE_MB`     Optional                Per-image size limit
+  `MAX_IMAGES_PER_PRODUCT` Optional               Per-product image count
+  `BUNNY_CDN_ACCESS_KEY`  Bunny storage           Bunny storage API key
+  `BUNNY_CDN_STORAGE_ZONE` Bunny storage          Bunny storage zone name
+  `BUNNY_CDN_PULL_URL`    Bunny storage           Bunny CDN public pull URL
+  `BUNNY_STORAGE_ENDPOINT` Optional               Bunny storage API origin
+  `ADMIN_NAME`            Bootstrap only          First admin display name
+  `ADMIN_EMAIL`           Bootstrap only          First admin email
+  `ADMIN_PASSWORD`        Bootstrap only          Admin password; 12+ chars
+  `ADMIN_PHONE`           Bootstrap only          Optional BD phone number
 
   Payment, SMS, OAuth,    Integration setup       Add only when those
-  and storage secrets                             services are configured
+  and other secrets                               services are configured
   -----------------------------------------------------------------------
 
 Never commit credentials, tokens, private keys, or production
@@ -284,7 +368,10 @@ environment files.
 -   [ ] Design and migrate the initial database schema
 -   [ ] Add centralized error handling and request validation
 -   [x] Implement email/password authentication and email OTP verification
--   [ ] Implement products, categories, variants, and inventory
+-   [x] Implement products, categories, variants, and inventory
+-   [x] Add catalogue image uploads with local/Bunny storage
+-   [x] Add product offers and stock movement history
+-   [ ] Implement admin product/category dashboard workflows
 -   [ ] Implement cart and checkout
 -   [ ] Implement order confirmation and cancellation
 -   [ ] Integrate SSLCommerz and Cash on Delivery

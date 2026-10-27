@@ -1,9 +1,10 @@
 import { User } from "../../../generated/prisma/client";
+
 export interface IRegisterUser {
   name: string;
   email: string;
   password: string;
-  phone?: string;
+  phone: string;
 }
 
 export interface ILogin {
@@ -12,3 +13,9 @@ export interface ILogin {
 }
 
 export type IAuthResponse = Partial<User>;
+
+
+export type AuthResult = {
+  data: IAuthResponse;
+  headers: Headers;
+};
