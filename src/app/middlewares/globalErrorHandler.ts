@@ -60,15 +60,20 @@ const globalErrorHandler: ErrorRequestHandler = (
         ]
       : [];
   } else if (error instanceof Error) {
-    message = error?.message;
-    errorMessages = error?.message
-      ? [
-          {
-            path: "",
-            message: error?.message,
-          },
-        ]
-      : [];
+    if (config.env === "production") {
+      message = "Something went wrong!";
+      errorMessages = [];
+    } else {
+      message = error?.message;
+      errorMessages = error?.message
+        ? [
+            {
+              path: "",
+              message: error?.message,
+            },
+          ]
+        : [];
+    }
   }
 
   res.status(statusCode).json({

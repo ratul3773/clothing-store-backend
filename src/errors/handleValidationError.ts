@@ -1,5 +1,5 @@
 import { Prisma } from "../generated/prisma/client";
-import { TGenericErrorResponse } from "../interfaces/error";
+import { TGenericErrorResponse } from "./error";
 
 const handleValidationError = (
   error: Prisma.PrismaClientValidationError,
