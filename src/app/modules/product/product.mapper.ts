@@ -40,6 +40,8 @@ export type PublicVariantDto = {
   colorHex: string | null;
   size: string;
   sizeOrder: number;
+  /** Available units are needed by the storefront stock selector. */
+  available: number;
   inStock: boolean;
   lowStock: boolean;
 };
@@ -182,6 +184,7 @@ const mapPublicVariant = (
     colorHex: color?.hex ?? null,
     size: variant.size,
     sizeOrder: variant.sizeOrder,
+    available,
     inStock,
     lowStock:
       variant.isActive && available > 0 && available <= variant.lowStockThreshold,
@@ -226,14 +229,7 @@ const mapPublicImages = (images: Image[]) =>
     );
 
 const publicColors = (product: ProductWithRelations) => {
-  const activeColorIds = new Set(
-    product.variants
-      .filter((variant) => variant.isActive)
-      .map((variant) => variant.colorId),
-  );
-
   return product.colors
-    .filter((color) => activeColorIds.has(color.id))
     .map((color) => ({
       id: color.id,
       name: color.name,
