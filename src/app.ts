@@ -12,6 +12,7 @@ import {
   securityHeaders,
   securityLogger,
 } from "./app/middlewares/security";
+import { requestLogger } from "./app/middlewares/requestLogger";
 
 const app = express();
 
@@ -43,6 +44,7 @@ app.use(
 
 app.use(securityHeaders);
 app.use(securityLogger);
+app.use(requestLogger);
 
 if (config.storage.driver === "local") {
   fs.mkdirSync(config.storage.upload_dir, { recursive: true });

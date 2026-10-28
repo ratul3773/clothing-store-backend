@@ -98,6 +98,17 @@ const assertColorBelongsToProduct = async (
       "Colour does not belong to this product",
     );
   }
+  const colorwithImageExists = await prisma.productImage.findFirst({
+    where: { colorId, productId },
+    select: { id: true },
+  });
+
+  if (colorwithImageExists) {
+    throw new ApiError(
+      httpStatus.BAD_REQUEST,
+      "Colour already has an image for this product",
+    );
+  }
 };
 
 const updateProductImage = async (
