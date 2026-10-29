@@ -11,7 +11,9 @@ export type UpdateProductInput = z.infer<
 
 export type PublicProductQuery = z.infer<
   typeof ProductValidation.publicProductQuerySchema
->["query"];
+>["query"] & {
+  ids: string[];
+};
 
 export type AdminProductQuery = z.infer<
   typeof ProductValidation.adminProductQuerySchema

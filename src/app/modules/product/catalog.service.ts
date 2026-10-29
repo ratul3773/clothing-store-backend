@@ -164,6 +164,9 @@ const listPublicProducts = async (query: PublicProductQuery) => {
   if (query.category) {
     where.categoryId = { in: [...(await resolvePublicCategoryIds(query.category))] };
   }
+  if (query.ids && query.ids.length > 0) {
+    where.id = { in: query.ids };
+  }
 
   if (query.q) {
     where.OR = [

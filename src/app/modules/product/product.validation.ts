@@ -148,11 +148,17 @@ const imageIdSchema = z.object({
 const offerIdSchema = z.object({
   params: z.object({ offerId: z.string().uuid() }).strict(),
 });
+const idsSchema = z.preprocess((v) => {
+  if (v === undefined || v === '') return undefined
+  const arr = Array.isArray(v) ? v : String(v).split(',')
+  return arr.map((s) => s.trim()).filter(Boolean)
+}, z.array(z.string().uuid()).max(50).optional())
 
 const publicProductQuerySchema = z.object({
   query: z
     .object({
       ...pagination,
+      ids: idsSchema,
       q: z.string().trim().max(100).optional(),
       category: slugSchema.optional(),
       minPrice: z.coerce.number().int().min(0).optional(),
