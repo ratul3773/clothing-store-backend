@@ -71,6 +71,7 @@ export type PublicProductDto = {
     id: string;
     name: string;
     slug: string;
+    parentId: string | null;
   };
   regularPrice: number;
   effectivePrice: number;
@@ -271,6 +272,7 @@ export const mapPublicProduct = (
       id: product.category.id,
       name: product.category.name,
       slug: product.category.slug,
+      parentId: product.category.parentId,
     },
     regularPrice: product.regularPrice,
     effectivePrice,

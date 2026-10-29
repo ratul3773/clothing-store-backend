@@ -159,6 +159,7 @@ const publicProductQuerySchema = z.object({
       maxPrice: z.coerce.number().int().min(0).optional(),
       badge: badgeSchema.optional(),
       inStock: z.enum(["true", "false"]).optional(),
+      offers: z.enum(["true", "false"]).optional(),
       sort: z.enum(PUBLIC_PRODUCT_SORTS).optional(),
     })
     .strict()

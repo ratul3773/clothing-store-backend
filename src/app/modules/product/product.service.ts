@@ -61,6 +61,13 @@ const assertCategoryExists = async (
     );
   }
 
+  if (!current.parentId) {
+    throw new ApiError(
+      httpStatus.UNPROCESSABLE_ENTITY,
+      "Products must be assigned to a subcategory",
+    );
+  }
+
   if (requireActive && !current.isActive) {
     throw new ApiError(
       httpStatus.UNPROCESSABLE_ENTITY,
@@ -68,7 +75,7 @@ const assertCategoryExists = async (
     );
   }
 
-  let parentId = current.parentId;
+  let parentId: string | null = current.parentId;
 
   while (parentId) {
     const parent: {

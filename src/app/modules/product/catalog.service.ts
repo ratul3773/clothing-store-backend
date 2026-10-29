@@ -154,9 +154,10 @@ const adminOrderBy = (
 
 const listPublicProducts = async (query: PublicProductQuery) => {
   const { page, limit, skip, take } = getPagination(query);
+  const now = new Date();
   const where: Prisma.ProductWhereInput = {
     status: ProductStatus.ACTIVE,
-    publishedAt: { lte: new Date() },
+    publishedAt: { lte: now },
     categoryId: { in: [...(await getPublicCategoryIds())] },
   };
 
@@ -193,6 +194,16 @@ const listPublicProducts = async (query: PublicProductQuery) => {
       query.inStock === "true"
         ? { in: availableIds }
         : { notIn: availableIds };
+  }
+
+  if (query.offers === "true") {
+    where.offers = {
+      some: {
+        isActive: true,
+        startsAt: { lte: now },
+        OR: [{ endsAt: null }, { endsAt: { gt: now } }],
+      },
+    };
   }
 
   const [products, total] = await Promise.all([
