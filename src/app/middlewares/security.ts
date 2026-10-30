@@ -18,6 +18,18 @@ export const validateInput = [
   },
 ];
 
+// Authentication endpoint rate limiting for custom auth routes.
+export const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    success: false,
+    message: "Too many authentication attempts, please try again later.",
+  },
+});
+
 // File upload rate limiting
 export const fileUploadLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
@@ -87,13 +99,9 @@ export const securityLogger = (
 
   const url = req.url.toLowerCase();
   const userAgent = req.get("User-Agent")?.toLowerCase() || "";
-  const body = JSON.stringify(req.body).toLowerCase();
 
   const isSuspicious = suspicious.some(
-    (pattern) =>
-      url.includes(pattern) ||
-      userAgent.includes(pattern) ||
-      body.includes(pattern),
+    (pattern) => url.includes(pattern) || userAgent.includes(pattern),
   );
 
   if (isSuspicious) {

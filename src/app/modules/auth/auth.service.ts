@@ -1,72 +1,115 @@
 import ApiError from "../../../errors/ApiError";
-import { Role } from "../../../generated/prisma/enums";
 import { auth } from "../../../lib/auth";
 import { prisma } from "../../../lib/prisma";
-import { IAuthResponse, IRegisterUser } from "./auth.interface";
+import { normalizeBdPhone } from "../../../utils/phone";
+import { AuthResult, IRegisterUser } from "./auth.interface";
 import httpStatus from "http-status";
 
-const RegisterUser = async (payload: IRegisterUser): Promise<IAuthResponse> => {
-    
-    const existingUser = await prisma.user.findUnique({
-        where: { email: payload.email },
-    });
-    if (existingUser) {
-        throw new ApiError(httpStatus.CONFLICT, "Email already exists");
-    }
-    
-    const data = await auth.api.signUpEmail({
-        body: {
-            name: payload.name, // required, The name of the user.
-            email: payload.email, // required, The email address of the user.
-            password: payload.password,
-            role: Role.CUSTOMER,
-            phone: payload.phone, // required, The password of the user.
-        },
-    });
-    if(!data.user) {
-        throw new ApiError(httpStatus.INTERNAL_SERVER_ERROR, "User registration failed");
-    }
-    return {
-        name: data.user.name,
-        email: data.user.email,
-    };
-}
+const RegisterUser = async (
+  payload: IRegisterUser,
+): Promise<AuthResult> => {
+  const email = payload.email.trim().toLowerCase();
+  const phone = normalizeBdPhone(payload.phone);
 
-const verifyEmail = async (email: string, otp: string) => {
-    const user = await prisma.user.findUnique({
-        where: { email },
-    });
-    if (!user) {
-        throw new ApiError(httpStatus.NOT_FOUND, "User not found");
-    }
-    await auth.api.verifyEmailOTP({
-        body: {
-            email: email, // required, Email address to send the OTP.
-            otp: otp, // required, The OTP to verify.
-        },
-    });
+  if (!phone) {
+    throw new ApiError(
+      httpStatus.BAD_REQUEST,
+      "A valid Bangladeshi phone number is required",
+    );
+  }
+
+  const existingUser = await prisma.user.findUnique({
+    where: { email },
+  });
+  if (existingUser) {
+    throw new ApiError(httpStatus.CONFLICT, "Email already exists");
+  }
+
+  const existingPhone = await prisma.user.findUnique({
+    where: { phone },
+  });
+  if (existingPhone) {
+    throw new ApiError(
+      httpStatus.CONFLICT,
+      "Phone number already exists",
+    );
+  }
+
+  const result = await auth.api.signUpEmail({
+    body: {
+      name: payload.name,
+      email,
+      password: payload.password,
+      phone,
+    },
+    returnHeaders: true,
+  });
+
+  if (!result.response?.user) {
+    throw new ApiError(
+      httpStatus.INTERNAL_SERVER_ERROR,
+      "User registration failed",
+    );
+  }
+
+  return {
+    data: {
+      name: result.response.user.name,
+      email: result.response.user.email,
+    },
+    headers: result.headers,
+  };
 };
 
-const LoginUser = async (email: string, password: string): Promise<IAuthResponse> => {
-    const result = await auth.api.signInEmail({
-        body: {
-            email: email, // required, The email address of the user.
-            password: password, // required, The password of the user.
-        },
-    });
-    if (!result.user) {
-        throw new ApiError(httpStatus.UNAUTHORIZED, "Invalid credentials");
-    }
-    return {
-        name: result.user.name,
-        email: result.user.email,
-    };
+const verifyEmail = async (
+  email: string,
+  otp: string,
+): Promise<Headers> => {
+  const user = await prisma.user.findUnique({
+    where: { email: email.trim().toLowerCase() },
+  });
+  if (!user) {
+    throw new ApiError(httpStatus.NOT_FOUND, "User not found");
+  }
+
+  const result = await auth.api.verifyEmailOTP({
+    body: {
+      email: user.email,
+      otp,
+    },
+    returnHeaders: true,
+  });
+
+  return result.headers;
 };
 
+const LoginUser = async (
+  email: string,
+  password: string,
+): Promise<AuthResult> => {
+  const result = await auth.api.signInEmail({
+    body: {
+      email: email.trim().toLowerCase(),
+      password,
+    },
+    returnHeaders: true,
+  });
+
+  if (!result.response?.user) {
+    throw new ApiError(httpStatus.UNAUTHORIZED, "Invalid credentials");
+  }
+
+  return {
+    data: {
+      name: result.response.user.name,
+      email: result.response.user.email,
+    },
+    headers: result.headers,
+  };
+};
 
 export const AuthService = {
-    RegisterUser,
-    verifyEmail,
-    LoginUser,
+  RegisterUser,
+  verifyEmail,
+  LoginUser,
 };
-

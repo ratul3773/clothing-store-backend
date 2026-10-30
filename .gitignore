@@ -6,4 +6,5 @@ src/generated/prisma
 .claude
 .windsurf
 prisma/migrations
-src/lib/auth.test.ts
+uploads
+src/**/*.test.ts
