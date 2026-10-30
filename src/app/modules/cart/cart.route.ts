@@ -1,6 +1,6 @@
 import { Router } from "express";
 import rateLimit from "express-rate-limit";
-import { requireAuth } from "../../middlewares/auth";
+import { requireAuth, requireRole } from "../../middlewares/auth";
 import { requireTrustedOrigin } from "../../middlewares/originGuard";
 import validateRequest from "../../middlewares/validateRequest";
 import { CartController } from "./cart.controller";
@@ -11,11 +11,15 @@ router.use((_req, res, next) => {
   res.setHeader("Cache-Control", "private, no-store");
   next();
 });
-router.use(requireTrustedOrigin, requireAuth);
+
+// Authentication and authorization
+router.use(requireAuth, requireRole("customer"));
+
+// Rate limit cart mutations
 const mutationLimiter = rateLimit({
   windowMs: 60_000,
   limit: 60,
-  standardHeaders: true,
+  standardHeaders: "draft-8",
   legacyHeaders: false,
   keyGenerator: (req) => req.user.id,
   skip: (req) => ["GET", "HEAD", "OPTIONS"].includes(req.method),
@@ -24,6 +28,14 @@ const mutationLimiter = rateLimit({
     message: "Too many cart changes. Please try again shortly.",
   },
 });
+router.use((req, res, next) => {
+  if (["GET", "HEAD", "OPTIONS"].includes(req.method)) {
+    return next();
+  }
+
+  return requireTrustedOrigin(req, res, next);
+});
+
 router.use(mutationLimiter);
 router.get(
   "/",
