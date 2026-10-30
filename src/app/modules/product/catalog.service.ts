@@ -10,6 +10,7 @@ import {
 import { AdminProductQuery, PublicProductQuery } from "./product.interface";
 import { mapAdminProduct, mapPublicProduct } from "./product.mapper";
 import { productRelationsInclude } from "./product.select";
+import { getPublicCategoryIds as loadPublicCategoryIds } from "./catalog.rules";
 
 type CategoryNode = {
   id: string;
@@ -18,39 +19,7 @@ type CategoryNode = {
   isActive: boolean;
 };
 
-const isPublicCategory = (
-  category: CategoryNode,
-  categories: Map<string, CategoryNode>,
-) => {
-  if (!category.isActive) return false;
-
-  const visited = new Set<string>([category.id]);
-  let parentId = category.parentId;
-
-  while (parentId) {
-    if (visited.has(parentId)) return false;
-    visited.add(parentId);
-
-    const parent = categories.get(parentId);
-    if (!parent || !parent.isActive) return false;
-    parentId = parent.parentId;
-  }
-
-  return true;
-};
-
-const getPublicCategoryIds = async () => {
-  const categories = await prisma.category.findMany({
-    select: { id: true, parentId: true, slug: true, isActive: true },
-  });
-  const byId = new Map(categories.map((category) => [category.id, category]));
-
-  return new Set(
-    categories
-      .filter((category) => isPublicCategory(category, byId))
-      .map((category) => category.id),
-  );
-};
+const getPublicCategoryIds = () => loadPublicCategoryIds(prisma);
 
 const getDescendantIds = (rootId: string, categories: CategoryNode[]) => {
   const children = new Map<string, string[]>();

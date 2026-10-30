@@ -1,6 +1,7 @@
 import { StorageProvider } from "../../../generated/prisma/enums";
 import { publicUrlFor } from "../upload/storage";
 import { ProductWithRelations } from "./product.select";
+import { resolveActiveOffer } from "./catalog.rules";
 
 export type Offer = ProductWithRelations["offers"][number];
 type Variant = ProductWithRelations["variants"][number];
@@ -119,24 +120,6 @@ const offerState = (offer: Offer, now: Date): OfferState => {
   if (offer.startsAt > now) return "SCHEDULED";
   if (offer.endsAt && offer.endsAt <= now) return "EXPIRED";
   return "ACTIVE";
-};
-
-const resolveActiveOffer = (
-  offers: Offer[],
-  regularPrice: number,
-  now: Date,
-): Offer | null => {
-  return (
-    offers
-      .filter(
-        (offer) =>
-          offer.isActive &&
-          offer.startsAt <= now &&
-          (!offer.endsAt || offer.endsAt > now) &&
-          offer.offerPrice < regularPrice,
-      )
-      .sort((a, b) => a.offerPrice - b.offerPrice)[0] ?? null
-  );
 };
 
 export const mapOffer = (offer: Offer, now: Date): ProductOfferDto => ({

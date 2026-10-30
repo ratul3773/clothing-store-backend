@@ -4,6 +4,7 @@ dist
 src/generated/prisma
 .agents
 .claude
+docs
 .windsurf
 prisma/migrations
 uploads
