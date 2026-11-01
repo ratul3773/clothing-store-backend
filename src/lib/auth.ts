@@ -7,6 +7,7 @@ import { sendMail } from "../utils/sendMail";
 import { createAuthMiddleware, APIError } from "better-auth/api";
 import config from "../config/env";
 import { normalizeBdPhone } from "../utils/phone";
+import { cartAfterAuth } from "../app/modules/cart/cart.auth";
 
 export const auth = betterAuth({
   secret: config.better_auth.secret,
@@ -66,6 +67,7 @@ export const auth = betterAuth({
     },
   },
   hooks: {
+    after: cartAfterAuth,
     before: createAuthMiddleware(async (ctx) => {
       if (ctx.path !== "/sign-up/email") return;
 

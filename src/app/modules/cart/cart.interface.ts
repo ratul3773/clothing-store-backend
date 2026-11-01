@@ -1,6 +1,23 @@
 import { z } from "zod";
 import { CartValidation } from "./cart.validation";
 
+export type CartOwner =
+  | { kind: "user"; userId: string }
+  | { kind: "guest"; cartId: string; tokenHash: string }
+  | { kind: "newGuest"; tokenHash: string }
+  | { kind: "none" };
+
+export type CartMergeAdjustment = {
+  variantId: string;
+  requestedQuantity: number;
+  retainedQuantity: number;
+  reason: "STOCK_CAP" | "UNAVAILABLE";
+};
+export type CartMergeReport = {
+  merged: boolean;
+  adjustments: CartMergeAdjustment[];
+};
+
 export type AddCartItemInput = z.infer<typeof CartValidation.addItem>["body"];
 export type UpdateCartItemInput = z.infer<
   typeof CartValidation.updateItem
@@ -37,7 +54,7 @@ export type CartDto = {
   version: number;
   currency: "BDT";
   moneyUnit: "taka";
-  limits: { distinctItems: number; quantityPerVariant: number };
+  limits: { distinctItems: null; quantityPerVariant: null };
   items: CartItemDto[];
   distinctItemCount: number;
   totalQuantity: number;

@@ -7,7 +7,7 @@ to add more categories later.
 ## Project status
 
 **Current stage:** Authentication plus admin catalogue, variant inventory,
-product offers, image uploads, public product/category APIs, and authenticated carts.
+product offers, image uploads, public product/category APIs, and database-backed guest/customer carts.
 
 ## Technology stack
 
@@ -253,10 +253,12 @@ methods, and send credentials/cookies.
 
 ### Cart and checkout
 
--   Authenticated carts persist in the database, with at most 30 distinct
-    variants and five units per variant. Product prices are shared across sizes/colours.
--   Guest cart operations stay entirely in browser localStorage, with zero
-    cart API requests. Guest carts are never merged into account carts.
+-   Guests and authenticated customers use the same database-backed cart API.
+    There is no localStorage cart and no fixed line/five-unit business limit;
+    additions and increases are bounded by available variant stock.
+-   Guests use an HttpOnly cookie; only its hash is stored. Guest carts expire
+    after 24 hours without a successful mutation and merge transactionally on login.
+-   Product prices are shared across sizes/colours and all amounts are in taka.
 -   Cart reads return current product-level prices and stock warnings; cart
     operations never reserve inventory or guarantee checkout prices.
 -   Checkout selection stays frontend-local. Checkout/order creation is not yet
@@ -381,7 +383,7 @@ environment files.
 -   [x] Add catalogue image uploads with local/Bunny storage
 -   [x] Add product offers and stock movement history
 -   [ ] Implement admin product/category dashboard workflows
--   [x] Implement authenticated cart CRUD
+-   [x] Implement guest/customer cart CRUD and login merging
 -   [ ] Implement selected-item guest/customer checkout
 -   [ ] Implement order confirmation and cancellation
 -   [ ] Integrate SSLCommerz and Cash on Delivery

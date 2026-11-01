@@ -3,16 +3,32 @@ import { Prisma, PrismaClient } from "../../../generated/prisma/client";
 import ApiError from "../../../errors/ApiError";
 import { prisma } from "../../../lib/prisma";
 import { getPublicCategoryIds } from "../product/catalog.rules";
-import { CART_MAX_ITEMS, CART_MAX_QUANTITY } from "./cart.constants";
-import { AddCartItemInput, UpdateCartItemInput } from "./cart.interface";
+import { CART_QUANTITY_STORAGE_MAX } from "./cart.constants";
+import {
+  AddCartItemInput,
+  CartOwner,
+  UpdateCartItemInput,
+} from "./cart.interface";
 import { getCartItemStatus, mapCart } from "./cart.mapper";
-import { cartInclude, CartWithItems } from "./cart.select";
+import {
+  cartInclude,
+  CartWithItems,
+  variantAvailabilitySelect,
+} from "./cart.select";
+import {
+  lockCustomer,
+  lockGuest,
+  normalizeOwner,
+  ownerWhere,
+  readCart,
+} from "./cart.repository";
 
-const readCart = async (tx: Prisma.TransactionClient, userId: string) =>
-  tx.cart.findFirst({
-    where: { customer: { userId, deletedAt: null, anonymizedAt: null } },
-    include: cartInclude,
-  });
+const mutationSelect = {
+  id: true,
+  version: true,
+  items: { select: { id: true, variantId: true, quantity: true } },
+} satisfies Prisma.CartSelect;
+type MutationCart = Prisma.CartGetPayload<{ select: typeof mutationSelect }>;
 
 const resultFor = async (
   tx: Prisma.TransactionClient,
@@ -25,11 +41,17 @@ const resultFor = async (
   );
 
 // Injectable client lets integration tests use a dedicated PostgreSQL schema.
-export const createCartService = (db: PrismaClient) => {
-  const getCart = (userId: string) =>
-    db.$transaction(async (tx) => resultFor(tx, await readCart(tx, userId)), {
-      isolationLevel: "RepeatableRead",
-    });
+  const getCart = (owner: CartOwner | string) => {
+    const resolved = normalizeOwner(owner);
+    if (resolved.kind === "none")
+      return Promise.resolve(mapCart(null, new Set(), new Date()));
+    return prisma.$transaction(
+      async (tx) => resultFor(tx, await readCart(tx, resolved)),
+      {
+        isolationLevel: "RepeatableRead",
+      },
+    );
+  };
 
   const assertVersion = (actual: number, expected: number) => {
     if (actual !== expected)
@@ -43,71 +65,63 @@ export const createCartService = (db: PrismaClient) => {
     if (
       !Number.isInteger(quantity) ||
       quantity < 1 ||
-      quantity > CART_MAX_QUANTITY
+      quantity > CART_QUANTITY_STORAGE_MAX
     )
       throw new ApiError(
         httpStatus.UNPROCESSABLE_ENTITY,
-        `A cart item must contain between 1 and ${CART_MAX_QUANTITY} units`,
+        "Quantity must be a positive integer within the database storage range",
       );
   };
 
   const mutate = async (
-    userId: string,
+    inputOwner: CartOwner | string,
     version: number,
     action: (
       tx: Prisma.TransactionClient,
-      cart: CartWithItems | null,
-    ) => Promise<void>,
+      cart: MutationCart | null,
+      owner: CartOwner,
+    ) => Promise<string | null>,
   ) =>
-    db.$transaction(async (tx) => {
-      // Lock a stable existing row, including for two simultaneous first-cart writes.
-      // Every cart writer must follow this protocol (including future checkout).
-      const users = await tx.$queryRaw<
-        Array<{
-          id: string;
-          isDeleted: boolean;
-          deletedAt: Date | null;
-          emailVerified: boolean;
-        }>
-      >`
-    SELECT id, "isDeleted", "deletedAt", "emailVerified" FROM "user"
-    WHERE id = ${userId} FOR UPDATE
-  `;
-      const user = users[0];
-      if (!user || user.isDeleted || user.deletedAt || !user.emailVerified)
+    prisma.$transaction(async (tx) => {
+      const owner = normalizeOwner(inputOwner);
+      if (owner.kind === "user") await lockCustomer(tx, owner.userId);
+      if (
+        owner.kind === "guest" &&
+        !(await lockGuest(tx, owner.cartId, owner.tokenHash))
+      )
         throw new ApiError(
-          httpStatus.UNAUTHORIZED,
-          "Please sign in to continue",
+          httpStatus.CONFLICT,
+          "Guest cart expired or changed. Reload your cart.",
         );
-      const customer = await tx.customer.findUnique({ where: { userId } });
-      if (customer?.deletedAt || customer?.anonymizedAt)
-        throw new ApiError(
-          httpStatus.FORBIDDEN,
-          "Your customer profile is no longer active",
-        );
-      const cart = await readCart(tx, userId);
+      // Load only IDs/quantities before mutation; hydrate catalogue data once afterward.
+      const cart = await tx.cart.findFirst({
+        where: ownerWhere(owner),
+        select: mutationSelect,
+      });
       assertVersion(cart?.version ?? 0, version);
-      await action(tx, cart);
-      return resultFor(tx, await readCart(tx, userId));
+      const cartId = await action(tx, cart, owner);
+      return resultFor(
+        tx,
+        cartId
+          ? await tx.cart.findUnique({
+              where: { id: cartId },
+              include: cartInclude,
+            })
+          : null,
+      );
     });
 
-  const addItem = (userId: string, input: AddCartItemInput) =>
-    mutate(userId, input.version, async (tx, cart) => {
+  const addItem = (owner: CartOwner | string, input: AddCartItemInput) =>
+    mutate(owner, input.version, async (tx, cart, resolvedOwner) => {
       const existing = cart?.items.find(
         (item) => item.variantId === input.variantId,
       );
       assertQuantity(input.quantity);
       const quantity = (existing?.quantity ?? 0) + input.quantity;
       assertQuantity(quantity);
-      if (!existing && (cart?.items.length ?? 0) >= CART_MAX_ITEMS)
-        throw new ApiError(
-          httpStatus.CONFLICT,
-          `A cart can contain at most ${CART_MAX_ITEMS} distinct variants`,
-        );
-
       const variant = await tx.variant.findUnique({
         where: { id: input.variantId },
-        include: cartInclude.items.include.variant.include,
+        select: variantAvailabilitySelect,
       });
       if (
         !variant ||
@@ -127,14 +141,23 @@ export const createCartService = (db: PrismaClient) => {
 
       let cartId = cart?.id;
       if (!cartId) {
-        // Legacy/admin-created users may not yet have a customer profile.
-        const customer = await tx.customer.upsert({
-          where: { userId },
-          create: { userId },
-          update: {},
-        });
+        let ownership: { customerId: string } | { guestTokenHash: string };
+        if (resolvedOwner.kind === "user") {
+          const customer = await tx.customer.upsert({
+            where: { userId: resolvedOwner.userId },
+            create: { userId: resolvedOwner.userId },
+            update: {},
+          });
+          ownership = { customerId: customer.id };
+        } else if (resolvedOwner.kind === "newGuest") {
+          ownership = { guestTokenHash: resolvedOwner.tokenHash };
+        } else
+          throw new ApiError(
+            httpStatus.CONFLICT,
+            "Reload your cart before adding items",
+          );
         const created = await tx.cart.create({
-          data: { customerId: customer.id },
+          data: ownership,
         });
         cartId = created.id;
       }
@@ -151,22 +174,29 @@ export const createCartService = (db: PrismaClient) => {
         where: { id: cartId },
         data: { version: { increment: 1 } },
       });
+      return cartId;
     });
 
   const updateItem = (
-    userId: string,
+    owner: CartOwner | string,
     itemId: string,
     input: UpdateCartItemInput,
   ) =>
-    mutate(userId, input.version, async (tx, cart) => {
+    mutate(owner, input.version, async (tx, cart) => {
       const item = cart?.items.find((item) => item.id === itemId);
       if (!item)
         throw new ApiError(httpStatus.NOT_FOUND, "Cart item not found");
       assertQuantity(input.quantity);
       // Reductions remain possible after stock loss or catalogue deactivation.
       if (input.quantity > item.quantity) {
+        const variant = await tx.variant.findUnique({
+          where: { id: item.variantId },
+          select: variantAvailabilitySelect,
+        });
+        if (!variant)
+          throw new ApiError(httpStatus.NOT_FOUND, "Variant is not available");
         const status = getCartItemStatus(
-          item.variant,
+          variant,
           input.quantity,
           await getPublicCategoryIds(tx),
           new Date(),
@@ -184,34 +214,44 @@ export const createCartService = (db: PrismaClient) => {
         data: { quantity: input.quantity },
       });
       await tx.cart.update({
-        where: { id: item.cartId },
+        where: { id: cart!.id },
         data: { version: { increment: 1 } },
       });
+      return cart!.id;
     });
 
-  const removeItem = (userId: string, itemId: string, version: number) =>
-    mutate(userId, version, async (tx, cart) => {
+  const removeItem = (
+    owner: CartOwner | string,
+    itemId: string,
+    version: number,
+  ) =>
+    mutate(owner, version, async (tx, cart) => {
       const item = cart?.items.find((item) => item.id === itemId);
       if (!item)
         throw new ApiError(httpStatus.NOT_FOUND, "Cart item not found");
       await tx.cartItem.delete({ where: { id: item.id } });
       await tx.cart.update({
-        where: { id: item.cartId },
+        where: { id: cart!.id },
         data: { version: { increment: 1 } },
       });
+      return cart!.id;
     });
 
-  const clearCart = (userId: string, version: number) =>
-    mutate(userId, version, async (tx, cart) => {
-      if (!cart) return;
+  const clearCart = (owner: CartOwner | string, version: number) =>
+    mutate(owner, version, async (tx, cart) => {
+      if (!cart) return null;
       await tx.cartItem.deleteMany({ where: { cartId: cart.id } });
       await tx.cart.update({
         where: { id: cart.id },
         data: { version: { increment: 1 } },
       });
+      return cart.id;
     });
 
-  return { getCart, addItem, updateItem, removeItem, clearCart };
+export const CartService = {
+  getCart,
+  addItem,
+  updateItem,
+  removeItem,
+  clearCart,
 };
-
-export const CartService = createCartService(prisma);

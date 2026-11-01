@@ -4,9 +4,11 @@ import { prisma } from "../../../lib/prisma";
 import { normalizeBdPhone } from "../../../utils/phone";
 import { AuthResult, IRegisterUser } from "./auth.interface";
 import httpStatus from "http-status";
+import { cartMergeFromResponse } from "../cart/cart.auth";
 
 const RegisterUser = async (
   payload: IRegisterUser,
+  headers = new Headers(),
 ): Promise<AuthResult> => {
   const email = payload.email.trim().toLowerCase();
   const phone = normalizeBdPhone(payload.phone);
@@ -29,13 +31,11 @@ const RegisterUser = async (
     where: { phone },
   });
   if (existingPhone) {
-    throw new ApiError(
-      httpStatus.CONFLICT,
-      "Phone number already exists",
-    );
+    throw new ApiError(httpStatus.CONFLICT, "Phone number already exists");
   }
 
   const result = await auth.api.signUpEmail({
+    headers,
     body: {
       name: payload.name,
       email,
@@ -58,13 +58,15 @@ const RegisterUser = async (
       email: result.response.user.email,
     },
     headers: result.headers,
+    cartMerge: cartMergeFromResponse(result.response),
   };
 };
 
 const verifyEmail = async (
   email: string,
   otp: string,
-): Promise<Headers> => {
+  headers = new Headers(),
+) => {
   const user = await prisma.user.findUnique({
     where: { email: email.trim().toLowerCase() },
   });
@@ -73,6 +75,7 @@ const verifyEmail = async (
   }
 
   const result = await auth.api.verifyEmailOTP({
+    headers,
     body: {
       email: user.email,
       otp,
@@ -80,14 +83,19 @@ const verifyEmail = async (
     returnHeaders: true,
   });
 
-  return result.headers;
+  return {
+    headers: result.headers,
+    cartMerge: cartMergeFromResponse(result.response),
+  };
 };
 
 const LoginUser = async (
   email: string,
   password: string,
+  headers = new Headers(),
 ): Promise<AuthResult> => {
   const result = await auth.api.signInEmail({
+    headers,
     body: {
       email: email.trim().toLowerCase(),
       password,
@@ -105,6 +113,7 @@ const LoginUser = async (
       email: result.response.user.email,
     },
     headers: result.headers,
+    cartMerge: cartMergeFromResponse(result.response),
   };
 };
 

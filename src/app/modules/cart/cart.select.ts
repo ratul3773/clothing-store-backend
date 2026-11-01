@@ -1,5 +1,17 @@
 import { Prisma } from "../../../generated/prisma/client";
 
+export const variantAvailabilitySelect = {
+  id: true,
+  onHand: true,
+  reserved: true,
+  isActive: true,
+  product: { select: { status: true, publishedAt: true, categoryId: true } },
+} satisfies Prisma.VariantSelect;
+
+export type CartAvailabilityVariant = Prisma.VariantGetPayload<{
+  select: typeof variantAvailabilitySelect;
+}>;
+
 export const cartInclude = {
   items: {
     orderBy: [{ createdAt: "asc" }, { id: "asc" }],

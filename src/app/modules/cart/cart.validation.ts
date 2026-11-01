@@ -1,8 +1,8 @@
 import { z } from "zod";
-import { CART_MAX_QUANTITY } from "./cart.constants";
+import { CART_QUANTITY_STORAGE_MAX } from "./cart.constants";
 
 const version = z.number().int().min(0).max(Number.MAX_SAFE_INTEGER);
-const quantity = z.number().int().min(1).max(CART_MAX_QUANTITY);
+const quantity = z.number().int().min(1).max(CART_QUANTITY_STORAGE_MAX);
 const itemParams = z.object({ itemId: z.string().uuid() }).strict();
 
 export const CartValidation = {

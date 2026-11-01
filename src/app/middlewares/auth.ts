@@ -59,6 +59,15 @@ export const requireAuth: RequestHandler = async (
       return;
     }
 
+    const customer = await prisma.customer.findUnique({
+      where: { userId: user.id },
+      select: { deletedAt: true, anonymizedAt: true },
+    });
+
+    if (customer?.deletedAt || customer?.anonymizedAt) {
+      sendForbidden(res, "Your customer profile is no longer active");
+      return;
+    }
     req.user = user;
     next();
   } catch (error) {

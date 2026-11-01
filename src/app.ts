@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import express from "express";
 import cors from "cors";
+import cookieParser from "cookie-parser";
 import { toNodeHandler } from "better-auth/node";
 
 import { prisma } from "./lib/prisma";
@@ -8,10 +9,7 @@ import config from "./config/env";
 import { auth } from "./lib/auth";
 import router from "./app/routes";
 import globalErrorHandler from "./app/middlewares/globalErrorHandler";
-import {
-  securityHeaders,
-  securityLogger,
-} from "./app/middlewares/security";
+import { securityHeaders, securityLogger } from "./app/middlewares/security";
 import { requestLogger } from "./app/middlewares/requestLogger";
 
 const app = express();
@@ -22,9 +20,7 @@ if (config.env === "production") {
   app.set("trust proxy", 1);
 }
 
-const allowedOrigins = new Set(
-  [config.frontend_url, config.better_auth.url].filter(Boolean),
-);
+const allowedOrigins = new Set([config.frontend_url].filter(Boolean));
 
 // CORS must run before Better Auth.
 app.use(
@@ -67,6 +63,7 @@ if (config.storage.driver === "local") {
 
 // Mount Better Auth before body parsers.
 app.all("/api/auth/{*splat}", toNodeHandler(auth));
+app.use(cookieParser());
 
 // Body parsers for the Express API routes.
 app.use(express.json({ limit: "1mb" }));

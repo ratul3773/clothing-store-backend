@@ -1,4 +1,5 @@
 import { User } from "../../../generated/prisma/client";
+import { CartMergeReport } from "../cart/cart.interface";
 
 export interface IRegisterUser {
   name: string;
@@ -14,8 +15,8 @@ export interface ILogin {
 
 export type IAuthResponse = Partial<User>;
 
-
 export type AuthResult = {
   data: IAuthResponse;
   headers: Headers;
+  cartMerge?: CartMergeReport | undefined;
 };

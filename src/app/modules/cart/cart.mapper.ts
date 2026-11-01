@@ -1,12 +1,21 @@
 import { ProductStatus } from "../../../generated/prisma/enums";
+import ApiError from "../../../errors/ApiError";
 import { resolveActiveOffer } from "../product/catalog.rules";
 import { publicUrlFor } from "../upload/storage";
-import { CART_MAX_ITEMS, CART_MAX_QUANTITY } from "./cart.constants";
 import { CartDto, CartItemDto, CartItemStatus } from "./cart.interface";
-import { CartLine, CartWithItems } from "./cart.select";
+import { CartAvailabilityVariant, CartWithItems } from "./cart.select";
+
+const safeAmount = (value: number): number => {
+  if (!Number.isSafeInteger(value))
+    throw new ApiError(
+      422,
+      "Cart amount exceeds the supported integer precision",
+    );
+  return value;
+};
 
 export const getCartItemStatus = (
-  variant: CartLine["variant"],
+  variant: CartAvailabilityVariant,
   quantity: number,
   publicCategoryIds: ReadonlySet<string>,
   now: Date,
@@ -63,10 +72,7 @@ export const mapCart = (
       product.images[0];
     return {
       ...base,
-      maxQuantity: Math.min(
-        CART_MAX_QUANTITY,
-        Math.max(0, variant.onHand - variant.reserved),
-      ),
+      maxQuantity: Math.max(0, variant.onHand - variant.reserved),
       product: {
         id: product.id,
         name: product.name,
@@ -76,7 +82,7 @@ export const mapCart = (
       variant: { color: variant.color.name, size: variant.size },
       regularPrice: product.regularPrice,
       unitPrice,
-      lineSubtotal: unitPrice * item.quantity,
+      lineSubtotal: safeAmount(unitPrice * item.quantity),
     };
   });
   return {
@@ -85,16 +91,18 @@ export const mapCart = (
     currency: "BDT",
     moneyUnit: "taka",
     limits: {
-      distinctItems: CART_MAX_ITEMS,
-      quantityPerVariant: CART_MAX_QUANTITY,
+      distinctItems: null,
+      quantityPerVariant: null,
     },
     items,
     distinctItemCount: items.length,
     totalQuantity: items.reduce((sum, item) => sum + item.quantity, 0),
-    validItemsSubtotal: items.reduce(
-      (sum, item) =>
-        sum + (item.status === "AVAILABLE" ? (item.lineSubtotal ?? 0) : 0),
-      0,
+    validItemsSubtotal: safeAmount(
+      items.reduce(
+        (sum, item) =>
+          sum + (item.status === "AVAILABLE" ? (item.lineSubtotal ?? 0) : 0),
+        0,
+      ),
     ),
     allItemsAvailable:
       items.length > 0 && items.every((item) => item.status === "AVAILABLE"),

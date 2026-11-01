@@ -1,10 +1,10 @@
 import { Router } from "express";
-import rateLimit from "express-rate-limit";
-import { requireAuth, requireRole } from "../../middlewares/auth";
+import rateLimit, { ipKeyGenerator } from "express-rate-limit";
 import { requireTrustedOrigin } from "../../middlewares/originGuard";
 import validateRequest from "../../middlewares/validateRequest";
 import { CartController } from "./cart.controller";
 import { CartValidation } from "./cart.validation";
+import { resolveCart } from "./cart.middleware";
 
 const router = Router();
 router.use((_req, res, next) => {
@@ -12,8 +12,36 @@ router.use((_req, res, next) => {
   next();
 });
 
-// Authentication and authorization
-router.use(requireAuth, requireRole("customer"));
+// Bound anonymous session/hash lookups before reaching authentication/storage.
+router.use(
+  requireTrustedOrigin,
+  rateLimit({
+    windowMs: 60_000,
+    limit: 180,
+    standardHeaders: "draft-8",
+    legacyHeaders: false,
+    message: {
+      success: false,
+      message: "Too many cart requests. Please try again shortly.",
+    },
+  }),
+  resolveCart,
+);
+
+// Limit creation separately; rotating cookies must not bypass IP throttling.
+router.use(
+  rateLimit({
+    windowMs: 60 * 60_000,
+    limit: 20,
+    standardHeaders: "draft-8",
+    legacyHeaders: false,
+    skip: (req) => req.method !== "POST" || req.cartOwner?.kind !== "none",
+    message: {
+      success: false,
+      message: "Too many guest carts created. Please try again later.",
+    },
+  }),
+);
 
 // Rate limit cart mutations
 const mutationLimiter = rateLimit({
@@ -21,21 +49,16 @@ const mutationLimiter = rateLimit({
   limit: 60,
   standardHeaders: "draft-8",
   legacyHeaders: false,
-  keyGenerator: (req) => req.user.id,
+  keyGenerator: (req) =>
+    req.cartOwner?.kind === "user"
+      ? `user:${req.cartOwner.userId}`
+      : `guest:${ipKeyGenerator(req.ip ?? "unknown")}`,
   skip: (req) => ["GET", "HEAD", "OPTIONS"].includes(req.method),
   message: {
     success: false,
     message: "Too many cart changes. Please try again shortly.",
   },
 });
-router.use((req, res, next) => {
-  if (["GET", "HEAD", "OPTIONS"].includes(req.method)) {
-    return next();
-  }
-
-  return requireTrustedOrigin(req, res, next);
-});
-
 router.use(mutationLimiter);
 router.get(
   "/",
