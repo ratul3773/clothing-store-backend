@@ -4,9 +4,14 @@ import { CART_QUANTITY_STORAGE_MAX } from "./cart.constants";
 const version = z.number().int().min(0).max(Number.MAX_SAFE_INTEGER);
 const quantity = z.number().int().min(1).max(CART_QUANTITY_STORAGE_MAX);
 const itemParams = z.object({ itemId: z.string().uuid() }).strict();
+const positiveQueryInteger = (max: number) =>
+  z.string().regex(/^[1-9]\d*$/).transform(Number).pipe(z.number().int().min(1).max(max));
 
 export const CartValidation = {
-  getCart: z.object({ query: z.object({}).strict().default({}) }),
+  getCart: z.object({ query: z.object({
+    page: positiveQueryInteger(2_147_483_647).optional(),
+    itemsPerPage: positiveQueryInteger(50).optional(),
+  }).strict().default({}) }),
   addItem: z.object({
     body: z
       .object({ variantId: z.string().uuid(), quantity, version })

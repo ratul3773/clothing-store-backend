@@ -61,3 +61,24 @@ export type CartWithItems = Prisma.CartGetPayload<{
   include: typeof cartInclude;
 }>;
 export type CartLine = CartWithItems["items"][number];
+
+// Totals and cross-page selection need availability/prices, but no product
+// names, images, colours, or other display data from off-page items.
+export const cartSummarySelect = {
+  id: true,
+  quantity: true,
+  variant: {
+    select: {
+      ...variantAvailabilitySelect,
+      product: {
+        select: {
+          ...variantAvailabilitySelect.product.select,
+          regularPrice: true,
+          offers: cartInclude.items.include.variant.include.product.select.offers,
+        },
+      },
+    },
+  },
+} satisfies Prisma.CartItemSelect;
+
+export type CartSummaryLine = Prisma.CartItemGetPayload<{ select: typeof cartSummarySelect }>;

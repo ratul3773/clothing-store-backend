@@ -3,7 +3,7 @@ import ApiError from "../../../errors/ApiError";
 import { resolveActiveOffer } from "../product/catalog.rules";
 import { publicUrlFor } from "../upload/storage";
 import { CartDto, CartItemDto, CartItemStatus } from "./cart.interface";
-import { CartAvailabilityVariant, CartWithItems } from "./cart.select";
+import { CartAvailabilityVariant, CartWithItems, CartSummaryLine } from "./cart.select";
 
 const safeAmount = (value: number): number => {
   if (!Number.isSafeInteger(value))
@@ -12,6 +12,30 @@ const safeAmount = (value: number): number => {
       "Cart amount exceeds the supported integer precision",
     );
   return value;
+};
+
+export const mapCartSummary = (
+  lines: CartSummaryLine[],
+  publicCategoryIds: ReadonlySet<string>,
+  now: Date,
+) => {
+  const selectionItems = lines.map((line) => {
+    const status = getCartItemStatus(line.variant, line.quantity, publicCategoryIds, now);
+    const product = line.variant.product;
+    const unitPrice = resolveActiveOffer(product.offers, product.regularPrice, now)?.offerPrice ?? product.regularPrice;
+    return {
+      id: line.id,
+      status,
+      lineSubtotal: status === "UNAVAILABLE" ? null : safeAmount(unitPrice * line.quantity),
+    };
+  });
+  return {
+    selectionItems,
+    distinctItemCount: lines.length,
+    totalQuantity: lines.reduce((sum, line) => sum + line.quantity, 0),
+    validItemsSubtotal: safeAmount(selectionItems.reduce((sum, item) => sum + (item.status === "AVAILABLE" ? item.lineSubtotal ?? 0 : 0), 0)),
+    allItemsAvailable: lines.length > 0 && selectionItems.every((item) => item.status === "AVAILABLE"),
+  };
 };
 
 export const getCartItemStatus = (

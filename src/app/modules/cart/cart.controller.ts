@@ -2,6 +2,7 @@ import { Request, Response } from "express";
 import catchAsync from "../../../utils/catchAsync";
 import sendResponse from "../../../utils/sendResponse";
 import ApiError from "../../../errors/ApiError";
+import pick from "../../../utils/pick";
 import { CART_COOKIE_NAME } from "./cart.constants";
 import {
   createCartToken,
@@ -12,6 +13,7 @@ import {
 import {
   AddCartItemInput,
   CartDto,
+  CartPageQuery,
   CartVersionQuery,
   UpdateCartItemInput,
 } from "./cart.interface";
@@ -30,9 +32,13 @@ const renewGuestCookie = (req: Request, res: Response) => {
     setCartCookie(res, token);
 };
 const getCart = catchAsync(async (req: Request, res: Response) => {
+  const query = pick(req.validatedQuery as Partial<CartPageQuery>, ["page", "limit"]);
+  const pagination = query.page !== undefined || query.limit !== undefined
+    ? { page: query.page ?? 1, limit: query.limit ?? 5 }
+    : undefined;
   respond(
     res,
-    await CartService.getCart(ownerFor(req)),
+    await (pagination ? CartService.getCart(ownerFor(req), pagination) : CartService.getCart(ownerFor(req))),
     "Cart retrieved successfully",
   );
 })

@@ -2,16 +2,20 @@ import httpStatus from "http-status";
 import { Prisma, PrismaClient } from "../../../generated/prisma/client";
 import ApiError from "../../../errors/ApiError";
 import { prisma } from "../../../lib/prisma";
+import { paginationHelpers } from "../../../helpers/paginationHelper";
+import { buildPaginationMeta } from "../../../utils/pagination";
 import { getPublicCategoryIds } from "../product/catalog.rules";
 import { CART_QUANTITY_STORAGE_MAX } from "./cart.constants";
 import {
   AddCartItemInput,
   CartOwner,
+  CartPageQuery,
   UpdateCartItemInput,
 } from "./cart.interface";
-import { getCartItemStatus, mapCart } from "./cart.mapper";
+import { getCartItemStatus, mapCart, mapCartSummary } from "./cart.mapper";
 import {
   cartInclude,
+  cartSummarySelect,
   CartWithItems,
   variantAvailabilitySelect,
 } from "./cart.select";
@@ -41,12 +45,44 @@ const resultFor = async (
   );
 
 // Injectable client lets integration tests use a dedicated PostgreSQL schema.
-  const getCart = (owner: CartOwner | string) => {
+  const getCart = (owner: CartOwner | string, pagination?: CartPageQuery) => {
     const resolved = normalizeOwner(owner);
+    const options = pagination ? paginationHelpers.calculatePagination({
+      page: pagination.page,
+      limit: pagination.limit,
+    }) : undefined;
     if (resolved.kind === "none")
-      return Promise.resolve(mapCart(null, new Set(), new Date()));
+      return Promise.resolve({
+        ...mapCart(null, new Set(), new Date()),
+        ...(options ? {
+          selectionItems: [],
+          pagination: { currentPage: 1, totalPages: 1, itemsPerPage: options.limit, totalItems: 0 },
+        } : {}),
+      });
     return prisma.$transaction(
-      async (tx) => resultFor(tx, await readCart(tx, resolved)),
+      async (tx) => {
+        if (!options) return resultFor(tx, await readCart(tx, resolved));
+        const header = await tx.cart.findFirst({ where: ownerWhere(resolved), select: { id: true, version: true } });
+        const summaryLines = header ? await tx.cartItem.findMany({ where: { cartId: header.id }, select: cartSummarySelect }) : [];
+        const publicIds = summaryLines.length ? await getPublicCategoryIds(tx) : new Set<string>();
+        const now = new Date();
+        const summary = mapCartSummary(summaryLines, publicIds, now);
+        const meta = buildPaginationMeta(summary.distinctItemCount, options.page, options.limit);
+        const totalPages = Math.max(1, meta.totalPage);
+        const { page: currentPage, limit, skip } = paginationHelpers.calculatePagination({
+          page: Math.min(meta.page, totalPages),
+          limit: meta.limit,
+        });
+        const cart = header ? await tx.cart.findUnique({
+          where: { id: header.id },
+          include: { items: { ...cartInclude.items, skip, take: limit } },
+        }) : null;
+        return {
+          ...mapCart(cart, publicIds, now),
+          ...summary,
+          pagination: { currentPage, totalPages, itemsPerPage: limit, totalItems: meta.total },
+        };
+      },
       {
         isolationLevel: "RepeatableRead",
       },
