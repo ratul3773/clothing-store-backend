@@ -25,7 +25,6 @@ export type UpdateCartItemInput = z.infer<
 export type CartVersionQuery = z.infer<
   typeof CartValidation.clearCart
 >["query"];
-export type CartPageQuery = { page: number; limit: number };
 export type CartItemStatus =
   | "AVAILABLE"
   | "INSUFFICIENT_STOCK"
@@ -61,6 +60,5 @@ export type CartDto = {
   totalQuantity: number;
   validItemsSubtotal: number;
   allItemsAvailable: boolean;
-  pagination?: { currentPage: number; totalPages: number; itemsPerPage: number; totalItems: number };
   selectionItems?: Array<{ id: string; status: CartItemStatus; lineSubtotal: number | null }>;
 };

@@ -10,7 +10,7 @@ const positiveQueryInteger = (max: number) =>
 export const CartValidation = {
   getCart: z.object({ query: z.object({
     page: positiveQueryInteger(2_147_483_647).optional(),
-    itemsPerPage: positiveQueryInteger(50).optional(),
+    limit: positiveQueryInteger(100).optional(),
   }).strict().default({}) }),
   addItem: z.object({
     body: z

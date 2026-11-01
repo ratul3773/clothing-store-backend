@@ -2,14 +2,13 @@ import httpStatus from "http-status";
 import { Prisma, PrismaClient } from "../../../generated/prisma/client";
 import ApiError from "../../../errors/ApiError";
 import { prisma } from "../../../lib/prisma";
-import { paginationHelpers } from "../../../helpers/paginationHelper";
+import { paginationHelpers, type TPaginationOptions } from "../../../helpers/paginationHelper";
 import { buildPaginationMeta } from "../../../utils/pagination";
 import { getPublicCategoryIds } from "../product/catalog.rules";
 import { CART_QUANTITY_STORAGE_MAX } from "./cart.constants";
 import {
   AddCartItemInput,
   CartOwner,
-  CartPageQuery,
   UpdateCartItemInput,
 } from "./cart.interface";
 import { getCartItemStatus, mapCart, mapCartSummary } from "./cart.mapper";
@@ -24,7 +23,6 @@ import {
   lockGuest,
   normalizeOwner,
   ownerWhere,
-  readCart,
 } from "./cart.repository";
 
 const mutationSelect = {
@@ -45,23 +43,16 @@ const resultFor = async (
   );
 
 // Injectable client lets integration tests use a dedicated PostgreSQL schema.
-  const getCart = (owner: CartOwner | string, pagination?: CartPageQuery) => {
+  const getCart = (owner: CartOwner | string, pagination: TPaginationOptions = {}) => {
     const resolved = normalizeOwner(owner);
-    const options = pagination ? paginationHelpers.calculatePagination({
-      page: pagination.page,
-      limit: pagination.limit,
-    }) : undefined;
+    const options = paginationHelpers.calculatePagination(pagination);
     if (resolved.kind === "none")
       return Promise.resolve({
-        ...mapCart(null, new Set(), new Date()),
-        ...(options ? {
-          selectionItems: [],
-          pagination: { currentPage: 1, totalPages: 1, itemsPerPage: options.limit, totalItems: 0 },
-        } : {}),
+        data: { ...mapCart(null, new Set(), new Date()), selectionItems: [] },
+        meta: buildPaginationMeta(0, 1, options.limit),
       });
     return prisma.$transaction(
       async (tx) => {
-        if (!options) return resultFor(tx, await readCart(tx, resolved));
         const header = await tx.cart.findFirst({ where: ownerWhere(resolved), select: { id: true, version: true } });
         const summaryLines = header ? await tx.cartItem.findMany({ where: { cartId: header.id }, select: cartSummarySelect }) : [];
         const publicIds = summaryLines.length ? await getPublicCategoryIds(tx) : new Set<string>();
@@ -78,9 +69,8 @@ const resultFor = async (
           include: { items: { ...cartInclude.items, skip, take: limit } },
         }) : null;
         return {
-          ...mapCart(cart, publicIds, now),
-          ...summary,
-          pagination: { currentPage, totalPages, itemsPerPage: limit, totalItems: meta.total },
+          data: { ...mapCart(cart, publicIds, now), ...summary },
+          meta: buildPaginationMeta(meta.total, currentPage, limit),
         };
       },
       {
