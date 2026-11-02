@@ -1,0 +1,50 @@
+model Combo {
+  id          String    @id @default(uuid())
+  name        String
+  slug        String    @unique
+  description String?
+  price       Int // combo price in taka
+  imageKey    String?
+  startsAt    DateTime?
+  endsAt      DateTime?
+  isActive    Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  items      ComboItem[]
+  cartCombos CartCombo[]
+
+  @@map("combos")
+}
+
+model ComboItem {
+  // A combo is made of 2-3 specific VARIANTS (same product or different products).
+  // Carts check stock; a future checkout reserves per variant x quantity.
+  id        String @id @default(uuid())
+  comboId   String
+  variantId String
+  quantity  Int    @default(1)
+
+  combo   Combo   @relation(fields: [comboId], references: [id], onDelete: Cascade)
+  variant Variant @relation(fields: [variantId], references: [id], onDelete: Restrict)
+
+  @@unique([comboId, variantId])
+  @@index([variantId])
+  @@map("combo_items")
+}
+
+model CartCombo {
+  // A combo in the cart is one line (comboId + quantity); its variants are fixed by the combo.
+  id        String   @id @default(uuid())
+  cartId    String
+  comboId   String
+  quantity  Int
+  createdAt DateTime @default(now())
+
+  cart  Cart  @relation(fields: [cartId], references: [id], onDelete: Cascade)
+  combo Combo @relation(fields: [comboId], references: [id], onDelete: Cascade)
+
+  @@unique([cartId, comboId])
+  @@index([comboId])
+  @@map("cart_combos")
+}

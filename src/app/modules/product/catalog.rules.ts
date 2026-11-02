@@ -1,5 +1,15 @@
 import { Prisma } from "../../../generated/prisma/client";
 
+type CatalogVariant = {
+  isActive: boolean;
+  product: { status: string; publishedAt: Date | null; categoryId: string };
+};
+
+export const isVariantPublic = (variant: CatalogVariant, publicIds: ReadonlySet<string>, now: Date) =>
+  variant.isActive && variant.product.status === "ACTIVE" &&
+  variant.product.publishedAt !== null && variant.product.publishedAt <= now &&
+  publicIds.has(variant.product.categoryId);
+
 export type CategoryNode = {
   id: string;
   parentId: string | null;

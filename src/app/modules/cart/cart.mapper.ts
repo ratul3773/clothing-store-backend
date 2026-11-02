@@ -1,18 +1,9 @@
-import { ProductStatus } from "../../../generated/prisma/enums";
-import ApiError from "../../../errors/ApiError";
 import { resolveActiveOffer } from "../product/catalog.rules";
 import { publicUrlFor } from "../upload/storage";
 import { CartDto, CartItemDto, CartItemStatus } from "./cart.interface";
 import { CartAvailabilityVariant, CartWithItems, CartSummaryLine } from "./cart.select";
-
-const safeAmount = (value: number): number => {
-  if (!Number.isSafeInteger(value))
-    throw new ApiError(
-      422,
-      "Cart amount exceeds the supported integer precision",
-    );
-  return value;
-};
+import { isVariantPublic } from "../product/catalog.rules";
+import { safeInteger as safeAmount } from "../combo/combo.rules";
 
 export const mapCartSummary = (
   lines: CartSummaryLine[],
@@ -44,14 +35,7 @@ export const getCartItemStatus = (
   publicCategoryIds: ReadonlySet<string>,
   now: Date,
 ): CartItemStatus => {
-  const product = variant.product;
-  if (
-    !variant.isActive ||
-    product.status !== ProductStatus.ACTIVE ||
-    !product.publishedAt ||
-    product.publishedAt > now ||
-    !publicCategoryIds.has(product.categoryId)
-  )
+  if (!isVariantPublic(variant, publicCategoryIds, now))
     return "UNAVAILABLE";
   const available = variant.onHand - variant.reserved;
   if (available <= 0) return "OUT_OF_STOCK";
@@ -73,6 +57,7 @@ export const mapCart = (
       now,
     );
     const base = {
+      type: "VARIANT" as const,
       id: item.id,
       variantId: item.variantId,
       quantity: item.quantity,

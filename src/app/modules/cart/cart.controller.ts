@@ -13,6 +13,7 @@ import {
 } from "./cart.cookie";
 import {
   AddCartItemInput,
+  AddCartComboInput,
   CartDto,
   CartVersionQuery,
   UpdateCartItemInput,
@@ -62,6 +63,27 @@ const updateItem = catchAsync(async (req: Request, res: Response) => {
   renewGuestCookie(req, res);
   respond(res, data, "Cart item updated");
 })
+const addCombo = catchAsync(async (req: Request, res: Response) => {
+  const owner = ownerFor(req);
+  const token = owner.kind === "none" ? createCartToken() : null;
+  const data = await CartService.addCombo(
+    token ? { kind: "newGuest", tokenHash: hashCartToken(token) } : owner,
+    req.body as AddCartComboInput,
+  );
+  if (token) setCartCookie(res, token);
+  else renewGuestCookie(req, res);
+  respond(res, data, "Combo added to cart");
+});
+const updateCombo = catchAsync(async (req: Request, res: Response) => {
+  const data = await CartService.updateCombo(ownerFor(req), req.params.itemId as string, req.body as UpdateCartItemInput);
+  renewGuestCookie(req, res);
+  respond(res, data, "Cart combo updated");
+});
+const removeCombo = catchAsync(async (req: Request, res: Response) => {
+  const data = await CartService.removeCombo(ownerFor(req), req.params.itemId as string, (req.validatedQuery as CartVersionQuery).version);
+  renewGuestCookie(req, res);
+  respond(res, data, "Cart combo removed");
+});
 const removeItem = catchAsync(async (req: Request, res: Response) => {
   const data = await CartService.removeItem(
     ownerFor(req),
@@ -83,6 +105,9 @@ const clearCart = catchAsync(async (req: Request, res: Response) => {
 export const CartController = {
   getCart,
   addItem,
+  addCombo,
+  updateCombo,
+  removeCombo,
   updateItem,
   removeItem,
   clearCart,

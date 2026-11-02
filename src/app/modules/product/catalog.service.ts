@@ -11,6 +11,9 @@ import { AdminProductQuery, PublicProductQuery } from "./product.interface";
 import { mapAdminProduct, mapPublicProduct } from "./product.mapper";
 import { productRelationsInclude } from "./product.select";
 import { getPublicCategoryIds as loadPublicCategoryIds } from "./catalog.rules";
+import { publicCatalogQuery, publicCatalogOrder } from "./catalog.query";
+import { mapComboProduct } from "./catalog.mapper";
+import { comboInclude } from "../combo/combo.select";
 
 type CategoryNode = {
   id: string;
@@ -18,8 +21,6 @@ type CategoryNode = {
   slug: string;
   isActive: boolean;
 };
-
-const getPublicCategoryIds = () => loadPublicCategoryIds(prisma);
 
 const getDescendantIds = (rootId: string, categories: CategoryNode[]) => {
   const children = new Map<string, string[]>();
@@ -41,25 +42,6 @@ const getDescendantIds = (rootId: string, categories: CategoryNode[]) => {
   }
 
   return result;
-};
-
-const resolvePublicCategoryIds = async (slug: string) => {
-  const publicIds = await getPublicCategoryIds();
-  const category = await prisma.category.findUnique({
-    where: { slug },
-    select: { id: true, parentId: true, slug: true, isActive: true },
-  });
-
-  if (!category || !publicIds.has(category.id)) {
-    throw new ApiError(httpStatus.NOT_FOUND, "Category not found");
-  }
-
-  const categories = await prisma.category.findMany({
-    select: { id: true, parentId: true, slug: true, isActive: true },
-  });
-  const descendants = getDescendantIds(category.id, categories);
-
-  return new Set([...descendants].filter((id) => publicIds.has(id)));
 };
 
 const resolveAdminCategoryIds = async (slug: string) => {
@@ -121,98 +103,74 @@ const adminOrderBy = (
   return publicOrderBy(sort);
 };
 
+type CatalogIdentity = { id: string; type: "PRODUCT" | "COMBO" };
+
 const listPublicProducts = async (query: PublicProductQuery) => {
   const { page, limit, skip, take } = getPagination(query);
-  const now = new Date();
-  const where: Prisma.ProductWhereInput = {
-    status: ProductStatus.ACTIVE,
-    publishedAt: { lte: now },
-    categoryId: { in: [...(await getPublicCategoryIds())] },
-  };
-
-  if (query.category) {
-    where.categoryId = { in: [...(await resolvePublicCategoryIds(query.category))] };
-  }
-  if (query.ids && query.ids.length > 0) {
-    where.id = { in: query.ids };
-  }
-
-  if (query.q) {
-    where.OR = [
-      { name: { contains: query.q, mode: "insensitive" } },
-      { code: { contains: query.q, mode: "insensitive" } },
-      {
-        variants: {
-          some: { sku: { contains: query.q, mode: "insensitive" } },
-        },
-      },
-    ];
-  }
-
-  if (query.badge) {
-    where.badges = { has: query.badge as ProductBadge };
-  }
-
-  if (query.minPrice !== undefined || query.maxPrice !== undefined) {
-    where.regularPrice = {
-      ...(query.minPrice !== undefined ? { gte: query.minPrice } : {}),
-      ...(query.maxPrice !== undefined ? { lte: query.maxPrice } : {}),
+  // Resolve the category subtree once; all catalog reads share one snapshot.
+  return prisma.$transaction(async (tx) => {
+    const now = new Date();
+    const publicIds = await loadPublicCategoryIds(tx);
+    let categoryIds: string[] | undefined;
+    if (query.category) {
+      const categories = await tx.category.findMany({
+        select: { id: true, parentId: true, slug: true, isActive: true },
+      });
+      const root = categories.find((category) => category.slug === query.category);
+      if (!root || !publicIds.has(root.id)) throw new ApiError(404, "Category not found");
+      categoryIds = [...getDescendantIds(root.id, categories)].filter((id) => publicIds.has(id));
+    }
+    const collection = publicCatalogQuery(query, [...publicIds], categoryIds, now);
+    const [count] = await tx.$queryRaw<Array<{ total: bigint }>>(
+      Prisma.sql`SELECT COUNT(*) AS total FROM (${collection}) catalog`,
+    );
+    const total = Number(count!.total);
+    // Clamp a stale page after a deletion, keeping the empty-list contract.
+    const actualPage = total > 0 ? Math.min(page, Math.ceil(total / limit)) : 1;
+    const offset = actualPage === page ? skip : (actualPage - 1) * limit;
+    const rows = await tx.$queryRaw<CatalogIdentity[]>(Prisma.sql`
+      SELECT id, type FROM (${collection}) catalog
+      ORDER BY ${publicCatalogOrder(query.sort)} OFFSET ${offset} LIMIT ${take}`);
+    const productIds = rows.filter((row) => row.type === "PRODUCT").map((row) => row.id);
+    const comboIds = rows.filter((row) => row.type === "COMBO").map((row) => row.id);
+    const [products, combos] = await Promise.all([
+      productIds.length ? tx.product.findMany({ where: { id: { in: productIds } }, include: productRelationsInclude }) : [],
+      comboIds.length ? tx.combo.findMany({ where: { id: { in: comboIds } }, include: comboInclude }) : [],
+    ]);
+    const mapped = new Map<string, ReturnType<typeof mapPublicProduct> | ReturnType<typeof mapComboProduct>>([
+      ...products.map((product) => [`PRODUCT:${product.id}`, mapPublicProduct(product, now)] as const),
+      ...combos.map((combo) => [`COMBO:${combo.id}`, mapComboProduct(combo)] as const),
+    ]);
+    return {
+      data: rows.map((row) => mapped.get(`${row.type}:${row.id}`)!),
+      meta: buildPaginationMeta(total, actualPage, limit),
     };
-  }
-
-  if (query.inStock !== undefined) {
-    const availableIds = await availableVariantProductIds();
-    where.id =
-      query.inStock === "true"
-        ? { in: availableIds }
-        : { notIn: availableIds };
-  }
-
-  if (query.offers === "true") {
-    where.offers = {
-      some: {
-        isActive: true,
-        startsAt: { lte: now },
-        OR: [{ endsAt: null }, { endsAt: { gt: now } }],
-      },
-    };
-  }
-
-  const [products, total] = await Promise.all([
-    prisma.product.findMany({
-      where,
-      include: productRelationsInclude,
-      orderBy: publicOrderBy(query.sort),
-      skip,
-      take,
-    }),
-    prisma.product.count({ where }),
-  ]);
-
-  return {
-    data: products.map((product) => mapPublicProduct(product)),
-    meta: buildPaginationMeta(total, page, limit),
-  };
+  }, { isolationLevel: "RepeatableRead" });
 };
 
-const getPublicProduct = async (slug: string) => {
-  const publicCategoryIds = await getPublicCategoryIds();
-  const product = await prisma.product.findFirst({
+const getPublicProduct = async (slug: string) => prisma.$transaction(async (tx) => {
+  const now = new Date();
+  const publicCategoryIds = await loadPublicCategoryIds(tx);
+  if (slug.startsWith("combo--")) {
+    const id = slug.slice("combo--".length);
+    const collection = publicCatalogQuery({ ids: [id] }, [...publicCategoryIds], undefined, now);
+    const eligible = await tx.$queryRaw<CatalogIdentity[]>(
+      Prisma.sql`SELECT id, type FROM (${collection}) catalog WHERE type = 'COMBO'`,
+    );
+    if (!eligible.length) throw new ApiError(404, "Product not found");
+    const combo = await tx.combo.findUniqueOrThrow({ where: { id }, include: comboInclude });
+    return mapComboProduct(combo);
+  }
+  const product = await tx.product.findFirst({
     where: {
-      slug,
-      status: ProductStatus.ACTIVE,
-      publishedAt: { lte: new Date() },
+      slug, status: ProductStatus.ACTIVE, publishedAt: { lte: now },
       categoryId: { in: [...publicCategoryIds] },
     },
     include: productRelationsInclude,
   });
-
-  if (!product) {
-    throw new ApiError(httpStatus.NOT_FOUND, "Product not found");
-  }
-
-  return mapPublicProduct(product);
-};
+  if (!product) throw new ApiError(httpStatus.NOT_FOUND, "Product not found");
+  return mapPublicProduct(product, now);
+}, { isolationLevel: "RepeatableRead" });
 
 const listAdminProducts = async (query: AdminProductQuery) => {
   const { page, limit, skip, take } = getPagination(query);

@@ -21,6 +21,7 @@
     "admin:seed": "tsx src/scripts/seed-admin.ts",
     "test": "tsx --test \"src/**/*.test.ts\"",
     "test:cart": "tsx --test \"src/app/modules/cart/*.test.ts\" \"src/app/modules/product/catalog.rules.test.ts\"",
+    "test:combo": "tsx --test \"src/app/modules/combo/*.test.ts\" \"src/app/modules/cart/cart.combo*.test.ts\" \"src/app/modules/product/catalog.search.test.ts\"",
     "build": "tsc && node -e \"require('node:fs').cpSync('src/utils/templates', 'dist/utils/templates', { recursive: true })\"",
     "start": "node dist/server.js",
     "typecheck": "tsc --noEmit"

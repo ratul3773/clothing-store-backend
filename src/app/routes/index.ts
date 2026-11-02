@@ -5,6 +5,7 @@ import { CategoryRoutes } from "../modules/category/category.route";
 import { AdminProductRoutes } from "../modules/product/admin-product.route";
 import { ProductRoutes } from "../modules/product/product.route";
 import { CartRoutes } from "../modules/cart/cart.route";
+import { ComboRoutes, AdminComboRoutes } from "../modules/combo/combo.route";
 
 const router = Router();
 
@@ -12,6 +13,8 @@ router.use("/auth", AuthRoutes);
 router.use("/categories", CategoryRoutes);
 router.use("/products", ProductRoutes);
 router.use("/cart", CartRoutes);
+router.use("/combos", ComboRoutes);
+router.use("/admin/combos", AdminComboRoutes);
 router.use("/admin/categories", AdminCategoryRoutes);
 router.use("/admin/products", AdminProductRoutes);
 

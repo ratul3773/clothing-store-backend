@@ -8,6 +8,7 @@ model Cart {
 
   customer Customer?  @relation(fields: [customerId], references: [id], onDelete: Cascade)
   items    CartItem[]
+  combos   CartCombo[]
 
   @@index([updatedAt])
   @@map("carts")

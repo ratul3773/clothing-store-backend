@@ -114,7 +114,10 @@ const productIdSchema = z.object({
 });
 
 const productSlugSchema = z.object({
-  params: z.object({ slug: slugSchema }).strict(),
+  params: z.object({ slug: z.union([
+    slugSchema,
+    z.string().regex(/^combo--[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/),
+  ]) }).strict(),
 });
 
 const productVariantParamsSchema = z.object({

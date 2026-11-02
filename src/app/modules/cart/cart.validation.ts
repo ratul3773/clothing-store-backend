@@ -8,6 +8,10 @@ const positiveQueryInteger = (max: number) =>
   z.string().regex(/^[1-9]\d*$/).transform(Number).pipe(z.number().int().min(1).max(max));
 
 export const CartValidation = {
+  addCombo: z.object({
+    body: z.object({ comboId: z.string().uuid(), quantity, version }).strict(),
+    query: z.object({}).strict().default({}),
+  }),
   getCart: z.object({ query: z.object({
     page: positiveQueryInteger(2_147_483_647).optional(),
     limit: positiveQueryInteger(100).optional(),
