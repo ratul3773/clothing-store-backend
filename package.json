@@ -20,6 +20,7 @@
     "seed": "npx tsx src/utils/seed.ts",
     "admin:seed": "tsx src/scripts/seed-admin.ts",
     "test": "tsx --test \"src/**/*.test.ts\"",
+    "test:cart": "tsx --test \"src/app/modules/cart/*.test.ts\" \"src/app/modules/product/catalog.rules.test.ts\"",
     "build": "tsc && node -e \"require('node:fs').cpSync('src/utils/templates', 'dist/utils/templates', { recursive: true })\"",
     "start": "node dist/server.js",
     "typecheck": "tsc --noEmit"
@@ -31,6 +32,7 @@
     "@prisma/adapter-pg": "^7.10.0",
     "@prisma/client": "^7.10.0",
     "better-auth": "^1.7.7",
+    "cookie-parser": "^1.4.7",
     "cors": "^2.8.6",
     "dotenv": "^18.0.7",
     "ejs": "^7.0.1",
@@ -44,6 +46,7 @@
     "zod": "^4.6.7"
   },
   "devDependencies": {
+    "@types/cookie-parser": "^1.4.10",
     "@types/cors": "^2.8.19",
     "@types/ejs": "^3.1.5",
     "@types/express": "^5.0.6",

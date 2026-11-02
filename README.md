@@ -7,7 +7,7 @@ to add more categories later.
 ## Project status
 
 **Current stage:** Authentication plus admin catalogue, variant inventory,
-product offers, image uploads, and public product/category APIs.
+product offers, image uploads, public product/category APIs, and database-backed guest/customer carts.
 
 ## Technology stack
 
@@ -215,7 +215,7 @@ the configured `FRONTEND_URL`; production cookies require HTTPS.
 ### Products and inventory
 
 -   Products use one regular price for all variants; amounts are integer
-    poisha. An active offer supplies the effective selling price.
+    taka. An active offer supplies the effective selling price.
 -   Products move `DRAFT -> ACTIVE -> DRAFT` or `ARCHIVED`; archive is the
     normal removal path. Only unused drafts can be hard deleted.
 -   Admins supply the product code only; URL slugs are generated from the
@@ -253,6 +253,17 @@ methods, and send credentials/cookies.
 
 ### Cart and checkout
 
+-   Guests and authenticated customers use the same database-backed cart API.
+    There is no localStorage cart and no fixed line/five-unit business limit;
+    additions and increases are bounded by available variant stock.
+-   Guests use an HttpOnly cookie; only its hash is stored. Guest carts expire
+    after 24 hours without a successful mutation and merge transactionally on login.
+-   Product prices are shared across sizes/colours and all amounts are in taka.
+-   Cart reads return current product-level prices and stock warnings; cart
+    operations never reserve inventory or guarantee checkout prices.
+-   Checkout selection stays frontend-local. Checkout/order creation is not yet
+    implemented; the selected-item integration requirements are documented in
+    [the cart API guide](docs/cart.md).
 -   Guest and registered-customer checkout.
 -   Different delivery charges for inside and outside Dhaka.
 -   Configurable free-delivery threshold.
@@ -372,7 +383,8 @@ environment files.
 -   [x] Add catalogue image uploads with local/Bunny storage
 -   [x] Add product offers and stock movement history
 -   [ ] Implement admin product/category dashboard workflows
--   [ ] Implement cart and checkout
+-   [x] Implement guest/customer cart CRUD and login merging
+-   [ ] Implement selected-item guest/customer checkout
 -   [ ] Implement order confirmation and cancellation
 -   [ ] Integrate SSLCommerz and Cash on Delivery
 -   [ ] Integrate courier assignment

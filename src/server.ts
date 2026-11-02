@@ -1,5 +1,6 @@
-
 import app from "./app";
+import { startGuestCartCleanup } from "./app/modules/cart/cart.cleanup";
+const stopGuestCartCleanup = startGuestCartCleanup();
 
 const port = Number(process.env.PORT ?? 5000);
 
@@ -8,6 +9,7 @@ const server = app.listen(port, () => {
 });
 
 function shutdown(signal: string) {
+  stopGuestCartCleanup();
   console.log(`${signal} received. Shutting down server...`);
 
   server.close((error) => {

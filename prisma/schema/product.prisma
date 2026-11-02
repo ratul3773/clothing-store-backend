@@ -102,7 +102,7 @@ model Product {
   careInstructions   String?
   categoryId         String
   status             ProductStatus   @default(DRAFT)
-  regularPrice       Int // poisha
+  regularPrice       Int // taka
   badges             ProductBadge[]
   isExchangeEligible Boolean         @default(true) // false = final sale
   seoTitle           String?
@@ -173,6 +173,7 @@ model Variant {
 
   movements      StockMovement[]
   notifyRequests StockNotifyRequest[]
+  cartItems      CartItem[]
 
   @@unique([productId, colorId, size])
   @@index([productId, isActive])

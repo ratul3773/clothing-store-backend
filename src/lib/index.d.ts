@@ -1,4 +1,5 @@
 import { Role } from "../generated/prisma/enums";
+import { CartOwner } from "../app/modules/cart/cart.interface";
 
 declare global {
   namespace Express {
@@ -14,6 +15,7 @@ declare global {
         deletedAt: Date | null;
       };
       validatedQuery?: unknown;
+      cartOwner?: CartOwner;
     }
   }
 }

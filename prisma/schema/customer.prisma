@@ -17,6 +17,7 @@ model Customer {
   stockNotifyRequests StockNotifyRequest[]
 
   user User @relation(fields: [userId], references: [id], onDelete: Restrict)
+  cart Cart?
 
   @@index([createdAt])
   @@map("customers")
