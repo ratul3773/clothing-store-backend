@@ -6,8 +6,8 @@ import { buildPaginationMeta } from "../../../utils/pagination";
 import { getPublicCategoryIds, isVariantPublic } from "../product/catalog.rules";
 import { isComboPublic, lockCombo, resolveComboSelections, comboSelectionKey } from "../combo/combo.rules";
 import { comboAvailabilitySelect } from "../combo/combo.select";
-import { CART_QUANTITY_STORAGE_MAX } from "./cart.constants";
-import type { AddCartItemInput, AddCartComboInput, CartOwner, UpdateCartItemInput } from "./cart.interface";
+import { CART_LINE_LIMIT, CART_QUANTITY_STORAGE_MAX } from "./cart.constants";
+import type { AddCartItemInput, AddCartComboInput, CartOwner, UpdateCartItemInput, UpdateCartComboInput } from "./cart.interface";
 import { mapCart } from "./cart.mapper";
 import { demandForLines, hydrateCart, loadDemandLines, pageCartIds, remainingCapacity, type DemandLine } from "./cart.lines";
 import { variantAvailabilitySelect } from "./cart.select";
@@ -41,7 +41,11 @@ const getCart = (owner: CartOwner | string, pagination: TPaginationOptions = {})
 
 const assertQuantity = (quantity: number) => {
   if (!Number.isInteger(quantity) || quantity < 1 || quantity > CART_QUANTITY_STORAGE_MAX)
-    throw new ApiError(422, "Quantity must be a positive integer within the database storage range");
+    throw new ApiError(422, `Quantity must be an integer from 1 to ${CART_QUANTITY_STORAGE_MAX}`);
+};
+const assertLineLimit = (cart: MutationCart | null, existing: unknown) => {
+  if (!existing && cart && cart.items.length + cart.combos.length >= CART_LINE_LIMIT)
+    throw new ApiError(422, `Your cart can contain at most ${CART_LINE_LIMIT} lines. Remove an item before adding another.`);
 };
 
 const ensureCart = async (tx: Prisma.TransactionClient, cart: MutationCart | null, owner: CartOwner) => {
@@ -103,6 +107,7 @@ const assertStock = async (tx: Prisma.TransactionClient, cartId: string | undefi
 
 const addItem = (owner: CartOwner | string, input: AddCartItemInput) => mutate(owner, input.version, async (tx, cart, resolved) => {
   const existing = cart?.items.find((item) => item.variantId === input.variantId);
+  assertLineLimit(cart, existing);
   assertQuantity(input.quantity);
   const quantity = (existing?.quantity ?? 0) + input.quantity;
   assertQuantity(quantity);
@@ -119,6 +124,7 @@ const addItem = (owner: CartOwner | string, input: AddCartItemInput) => mutate(o
 const addCombo = (owner: CartOwner | string, input: AddCartComboInput) => mutate(owner, input.version, async (tx, cart, resolved) => {
   const selectionKey = comboSelectionKey(input.selections);
   const existing = cart?.combos.find((item) => item.comboId === input.comboId && item.selectionKey === selectionKey);
+  assertLineLimit(cart, existing);
   assertQuantity(input.quantity);
   const quantity = (existing?.quantity ?? 0) + input.quantity;
   assertQuantity(quantity);
@@ -163,6 +169,39 @@ const removeLine = (type: "VARIANT" | "COMBO", owner: CartOwner | string, itemId
     return cart.id;
   });
 
+const updateCombo = (owner: CartOwner | string, itemId: string, input: UpdateCartComboInput) => {
+  if (!input.selections) {
+    if (input.quantity === undefined) throw new ApiError(422, "Provide quantity or selections");
+    return updateLine("COMBO", owner, itemId, { quantity: input.quantity, version: input.version });
+  }
+  return mutate(owner, input.version, async (tx, cart) => {
+    const item = cart?.combos.find((line) => line.id === itemId);
+    if (!cart || !item) throw new ApiError(404, "Cart item not found");
+    await lockCombo(tx, item.comboId);
+    const combo = await tx.combo.findUniqueOrThrow({ where: { id: item.comboId }, select: comboAvailabilitySelect });
+    const publicIds = await getPublicCategoryIds(tx);
+    const now = new Date();
+    if (!isComboPublic(combo, publicIds, now)) throw new ApiError(404, "Combo is not available");
+    const components = resolveComboSelections(combo, input.selections!);
+    if (!components) throw new ApiError(422, "Choose exactly one size belonging to each included product/color");
+    if (components.some((component) => !isVariantPublic(component.variant, publicIds, now))) throw new ApiError(404, "A selected size is no longer available");
+    const selectionKey = comboSelectionKey(input.selections!);
+    const matching = cart.combos.find((line) => line.id !== itemId && line.comboId === item.comboId && line.selectionKey === selectionKey);
+    const quantity = (input.quantity ?? item.quantity) + (matching?.quantity ?? 0);
+    assertQuantity(quantity);
+    const lines = await loadDemandLines(tx, cart.id, publicIds, now);
+    const others = lines.filter((line) => line.id !== itemId && line.id !== matching?.id);
+    if (quantity > remainingCapacity(components, demandForLines(others))) throw new ApiError(409, "Requested quantity exceeds available stock across cart items and combos");
+    if (matching) {
+      await tx.cartCombo.delete({ where: { id: itemId } });
+      await tx.cartCombo.update({ where: { id: matching.id }, data: { quantity } });
+    } else await tx.cartCombo.update({ where: { id: itemId }, data: { quantity, selectionKey,
+      selections: { deleteMany: {}, create: input.selections! },
+    } });
+    return cart.id;
+  });
+};
+
 const clearCart = (owner: CartOwner | string, version: number) => mutate(owner, version, async (tx, cart) => {
   if (!cart) return null;
   await tx.cartItem.deleteMany({ where: { cartId: cart.id } });
@@ -173,7 +212,7 @@ const clearCart = (owner: CartOwner | string, version: number) => mutate(owner, 
 export const CartService = {
   getCart, addItem, addCombo, clearCart,
   updateItem: (owner: CartOwner | string, itemId: string, input: UpdateCartItemInput) => updateLine("VARIANT", owner, itemId, input),
-  updateCombo: (owner: CartOwner | string, itemId: string, input: UpdateCartItemInput) => updateLine("COMBO", owner, itemId, input),
+  updateCombo,
   removeItem: (owner: CartOwner | string, itemId: string, version: number) => removeLine("VARIANT", owner, itemId, version),
   removeCombo: (owner: CartOwner | string, itemId: string, version: number) => removeLine("COMBO", owner, itemId, version),
 };

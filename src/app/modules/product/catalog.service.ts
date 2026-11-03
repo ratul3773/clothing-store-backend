@@ -140,7 +140,7 @@ const listPublicProducts = async (query: PublicProductQuery) => {
     ]);
     const mapped = new Map<string, ReturnType<typeof mapPublicProduct> | ReturnType<typeof mapComboProduct>>([
       ...products.map((product) => [`PRODUCT:${product.id}`, mapPublicProduct(product, now)] as const),
-      ...combos.map((combo) => [`COMBO:${combo.id}`, mapComboProduct(combo)] as const),
+      ...combos.map((combo) => [`COMBO:${combo.id}`, mapComboProduct(combo, now, publicIds)] as const),
     ]);
     return {
       data: rows.map((row) => mapped.get(`${row.type}:${row.id}`)!),
@@ -160,7 +160,7 @@ const getPublicProduct = async (slug: string) => prisma.$transaction(async (tx) 
     );
     if (!eligible.length) throw new ApiError(404, "Product not found");
     const combo = await tx.combo.findUniqueOrThrow({ where: { id }, include: comboInclude });
-    return mapComboProduct(combo);
+    return mapComboProduct(combo, now, publicCategoryIds);
   }
   const product = await tx.product.findFirst({
     where: {
@@ -172,7 +172,7 @@ const getPublicProduct = async (slug: string) => prisma.$transaction(async (tx) 
   if (product) return mapPublicProduct(product, now);
   const combo = await tx.combo.findUnique({ where: { slug }, include: comboInclude });
   if (!combo || !isComboPublic(combo, publicCategoryIds, now)) throw new ApiError(httpStatus.NOT_FOUND, "Product not found");
-  return mapComboProduct(combo);
+  return mapComboProduct(combo, now, publicCategoryIds);
 }, { isolationLevel: "RepeatableRead" });
 
 const listAdminProducts = async (query: AdminProductQuery) => {

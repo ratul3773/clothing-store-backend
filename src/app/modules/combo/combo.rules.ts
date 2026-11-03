@@ -25,8 +25,8 @@ export const isComboPublic = (combo: ComboAvailability, publicIds: ReadonlySet<s
   comboItemsError(combo.items) === null &&
   combo.items.every((item) => item.color.variants.some((variant) => variant.productId === item.color.product.id && isVariantPublic({ ...variant, product: item.color.product }, publicIds, now)));
 
-export const comboCapacity = (combo: ComboAvailability) => !combo.items.length ? 0 : Math.max(0, Math.min(
-  ...combo.items.map((item) => Math.max(0, ...item.color.variants.filter((variant) => variant.isActive && variant.productId === item.color.product.id).map((variant) => Math.floor((variant.onHand - variant.reserved) / item.quantity)))),
+export const comboCapacity = (combo: ComboAvailability, publicIds: ReadonlySet<string>, now = new Date()) => comboItemsError(combo.items) ? 0 : Math.max(0, Math.min(
+  ...combo.items.map((item) => Math.max(0, ...item.color.variants.filter((variant) => variant.productId === item.color.product.id && isVariantPublic({ ...variant, product: item.color.product }, publicIds, now)).map((variant) => Math.floor((variant.onHand - variant.reserved) / item.quantity)))),
   0x7fffffff,
 ));
 

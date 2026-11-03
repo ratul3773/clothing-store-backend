@@ -4,6 +4,7 @@ import { CartDto, CartItemDto, CartItemStatus } from "./cart.interface";
 import { CartAvailabilityVariant, CartWithItems, CartSummaryLine } from "./cart.select";
 import { isVariantPublic } from "../product/catalog.rules";
 import { safeInteger as safeAmount } from "../combo/combo.rules";
+import { CART_LINE_LIMIT } from "./cart.constants";
 
 export const mapCartSummary = (
   lines: CartSummaryLine[],
@@ -100,7 +101,7 @@ export const mapCart = (
     currency: "BDT",
     moneyUnit: "taka",
     limits: {
-      distinctItems: null,
+      distinctItems: CART_LINE_LIMIT,
       quantityPerVariant: null,
     },
     items,

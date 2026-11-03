@@ -3,7 +3,7 @@ import { prisma } from "../../../lib/prisma";
 import { getPublicCategoryIds } from "../product/catalog.rules";
 import { addVariantDemand } from "../combo/combo.rules";
 import { hashCartToken, isCartToken } from "./cart.cookie";
-import { CART_QUANTITY_STORAGE_MAX } from "./cart.constants";
+import { CART_LINE_LIMIT, CART_QUANTITY_STORAGE_MAX } from "./cart.constants";
 import { CartMergeReport } from "./cart.interface";
 import { demandForLines, loadDemandLines, remainingCapacity } from "./cart.lines";
 import { guestCutoff, lockCustomer, lockGuest } from "./cart.repository";
@@ -34,18 +34,23 @@ export const createCartMergeService = (db: PrismaClient) => ({
       ]));
       const demand = demandForLines(targetLines);
       const report: CartMergeReport = { merged: true, adjustments: [] };
+      let lineCount = targetLines.length;
+      // Merge allocates greedily: guest variants, then combos, each in creation/id
+      // order. Existing account demand wins. In contrast,
+      // cart reads mark every line on an overcommitted variant insufficient.
       for (const line of source) {
         const configuration = line.type === "COMBO" ? comboIds.get(line.id)! : null;
         const identifier = line.type === "VARIANT" ? line.components[0]!.variantId : configuration!.comboId;
         const key = keyFor(line.type, configuration ? `${identifier}:${configuration.selectionKey}` : identifier);
         const current = quantities.get(key) ?? 0;
         const requested = current + line.quantity;
-        const added = line.eligible ? Math.max(0, Math.min(line.quantity, remainingCapacity(line.components, demand), CART_QUANTITY_STORAGE_MAX - current)) : 0;
+        const limitReached = !quantities.has(key) && lineCount >= CART_LINE_LIMIT;
+        const added = line.eligible && !limitReached ? Math.max(0, Math.min(line.quantity, remainingCapacity(line.components, demand), CART_QUANTITY_STORAGE_MAX - current)) : 0;
         const retained = current + added;
         if (retained !== requested) report.adjustments.push({
           ...(line.type === "VARIANT" ? { type: "VARIANT" as const, variantId: identifier } : { type: "COMBO" as const, comboId: identifier }),
           requestedQuantity: requested, retainedQuantity: retained,
-          reason: !line.eligible || remainingCapacity(line.components, new Map()) === 0 ? "UNAVAILABLE" : "STOCK_CAP",
+          reason: limitReached ? "LINE_LIMIT" : !line.eligible || remainingCapacity(line.components, new Map()) === 0 ? "UNAVAILABLE" : "STOCK_CAP",
         });
         if (!added) continue;
         if (!customer) customer = await tx.customer.create({ data: { userId } });
@@ -58,6 +63,7 @@ export const createCartMergeService = (db: PrismaClient) => ({
           where: { cartId_comboId_selectionKey: { cartId: target.id, comboId: identifier, selectionKey: configuration!.selectionKey } },
           create: { cartId: target.id, comboId: identifier, quantity: retained, selectionKey: configuration!.selectionKey, selections: { create: configuration!.selections } }, update: { quantity: retained },
         });
+        if (!quantities.has(key)) lineCount++;
         quantities.set(key, retained);
         addVariantDemand(demand, line.components, added);
       }

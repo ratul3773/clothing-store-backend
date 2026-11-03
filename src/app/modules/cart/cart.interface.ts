@@ -13,7 +13,7 @@ export type CartMergeAdjustment = (
 ) & {
   requestedQuantity: number;
   retainedQuantity: number;
-  reason: "STOCK_CAP" | "UNAVAILABLE";
+  reason: "STOCK_CAP" | "UNAVAILABLE" | "LINE_LIMIT";
 };
 export type CartMergeReport = {
   merged: boolean;
@@ -25,6 +25,7 @@ export type AddCartComboInput = z.infer<typeof CartValidation.addCombo>["body"];
 export type UpdateCartItemInput = z.infer<
   typeof CartValidation.updateItem
 >["body"];
+export type UpdateCartComboInput = z.infer<typeof CartValidation.updateCombo>["body"];
 export type CartVersionQuery = z.infer<
   typeof CartValidation.clearCart
 >["query"];
@@ -32,6 +33,7 @@ export type CartItemStatus =
   | "AVAILABLE"
   | "INSUFFICIENT_STOCK"
   | "OUT_OF_STOCK"
+  | "SELECTION_REQUIRED"
   | "UNAVAILABLE";
 
 export type CartItemDto = {
@@ -56,13 +58,14 @@ export type CartItemDto = {
 export type CartComboDto = {
   type: "COMBO";
   id: string;
-  comboId: string;
+  comboId: string | null;
   variantId: null;
   quantity: number;
   status: CartItemStatus;
   maxQuantity: number;
   combo: ReturnType<typeof import("../combo/combo.mapper").mapCombo> | null;
   requiresSelection: boolean;
+  selectionIssue: "INCOMPLETE" | "INVALID" | null;
   selections: Array<{ comboItemId: string; variantId: string; size: string }>;
   product: null;
   variant: null;
@@ -76,7 +79,7 @@ export type CartDto = {
   version: number;
   currency: "BDT";
   moneyUnit: "taka";
-  limits: { distinctItems: null; quantityPerVariant: null };
+  limits: { distinctItems: number | null; quantityPerVariant: number | null };
   items: (CartItemDto | CartComboDto)[];
   distinctItemCount: number;
   totalQuantity: number;

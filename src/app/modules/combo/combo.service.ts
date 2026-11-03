@@ -43,7 +43,9 @@ const list = (query: PaginationQuery, admin = false) => prisma.$transaction(asyn
   const where = admin ? {} : await publicWhere(tx);
   const total = await tx.combo.count({ where });
   const rows = await tx.combo.findMany({ where, include: comboInclude, orderBy: [{ createdAt: "desc" }, { id: "asc" }], skip, take });
-  return { data: rows.map((row) => mapCombo(row)), meta: buildPaginationMeta(total, page, limit) };
+  const publicIds = await getPublicCategoryIds(tx);
+  const now = new Date();
+  return { data: rows.map((row) => mapCombo(row, now, publicIds)), meta: buildPaginationMeta(total, page, limit) };
 }, { isolationLevel: "RepeatableRead" });
 
 const detail = (identifier: string, admin = false) => prisma.$transaction(async (tx) => {
@@ -51,7 +53,7 @@ const detail = (identifier: string, admin = false) => prisma.$transaction(async 
     where: admin ? { id: identifier } : { ...await publicWhere(tx), slug: identifier }, include: comboInclude,
   });
   if (!combo) throw new ApiError(404, "Combo not found");
-  return mapCombo(combo);
+  return mapCombo(combo, new Date(), await getPublicCategoryIds(tx));
 }, { isolationLevel: "RepeatableRead" });
 
 const create = (input: CreateComboInput) => prisma.$transaction(async (tx) => {
@@ -62,7 +64,7 @@ const create = (input: CreateComboInput) => prisma.$transaction(async (tx) => {
     startsAt: input.startsAt ?? null, endsAt: input.endsAt ?? null, isActive: input.isActive ?? true,
     items: { create: input.items },
   }, include: comboInclude });
-  return mapCombo(combo);
+  return mapCombo(combo, new Date(), await getPublicCategoryIds(tx));
 });
 
 const update = (id: string, input: UpdateComboInput) => prisma.$transaction(async (tx) => {
@@ -93,7 +95,7 @@ const update = (id: string, input: UpdateComboInput) => prisma.$transaction(asyn
   if (input.endsAt !== undefined) data.endsAt = input.endsAt;
   if (input.isActive !== undefined) data.isActive = input.isActive;
   if (replaceItems) data.items = { create: input.items! };
-  return mapCombo(await tx.combo.update({ where: { id }, data, include: comboInclude }));
+  return mapCombo(await tx.combo.update({ where: { id }, data, include: comboInclude }), new Date(), await getPublicCategoryIds(tx));
 });
 
 export const ComboService = { list, detail, create, update };

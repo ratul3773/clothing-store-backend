@@ -10,6 +10,7 @@ import { cartInclude, cartSummarySelect, type CartAvailabilityVariant } from "./
 export type DemandLine = {
   id: string; type: "VARIANT" | "COMBO"; quantity: number; unitPrice: number;
   eligible: boolean; components: Array<VariantDemand & { variant: CartAvailabilityVariant }>;
+  selectionIssue?: "INCOMPLETE" | "INVALID" | null;
 };
 export const cartComboSummarySelect = {
   id: true, comboId: true, quantity: true,
@@ -29,9 +30,18 @@ export const loadDemandLines = async (tx: Prisma.TransactionClient, cartId: stri
     })),
     ...combos.map((item): DemandLine => {
       const components = resolveComboSelections(item.combo, item.selections);
+      const visible = isComboPublic(item.combo, publicIds, now);
+      const invalidChoice = item.selections.some((selection) => {
+        const component = item.combo.items.find((component) => component.id === selection.comboItemId);
+        const variant = component?.color.variants.find((variant) => variant.id === selection.variantId);
+        return !component || !variant || variant.productId !== component.color.product.id || !isVariantPublic({ ...variant, product: component.color.product }, publicIds, now);
+      });
+      const selectionIssue = !visible ? null : invalidChoice || item.selections.length > item.combo.items.length
+        ? "INVALID" : !components ? "INCOMPLETE" : null;
       return {
         id: item.id, type: "COMBO", quantity: item.quantity, unitPrice: item.combo.price,
-        eligible: isComboPublic(item.combo, publicIds, now) && !!components && components.every((item) => isVariantPublic(item.variant, publicIds, now)),
+        eligible: visible && !!components && components.length > 0 && !selectionIssue,
+        selectionIssue,
         components: components ?? [],
       };
     }),
@@ -44,22 +54,38 @@ export const demandForLines = (lines: readonly DemandLine[], exclude?: string) =
   return demand;
 };
 
-export const remainingCapacity = (components: DemandLine["components"], demand: ReadonlyMap<string, number>) => Math.max(0, Math.min(
+export const remainingCapacity = (components: DemandLine["components"], demand: ReadonlyMap<string, number>) => !components.length ? 0 : Math.max(0, Math.min(
   ...components.map((item) => Math.floor((item.variant.onHand - item.variant.reserved - (demand.get(item.variantId) ?? 0)) / item.quantity)),
   0x7fffffff,
 ));
 
 export const summarizeLines = (lines: DemandLine[]) => {
-  const demand = demandForLines(lines);
+  // Reads tolerate a malformed legacy row; writes still use strict demandForLines.
+  const invalid = new Set<string>();
+  let demand = new Map<string, number>();
+  let subtotalBudget = 0;
+  for (const line of lines) {
+    try {
+      safeInteger(line.quantity);
+      const subtotal = safeInteger(line.unitPrice * line.quantity);
+      const next = new Map(demand);
+      addVariantDemand(next, line.components, line.quantity);
+      const budget = safeInteger(subtotalBudget + (line.eligible ? subtotal : 0));
+      demand = next;
+      subtotalBudget = budget;
+    } catch { invalid.add(line.id); }
+  }
   const states = new Map<string, { status: CartItemStatus; maxQuantity: number; lineSubtotal: number | null }>();
   for (const line of lines) {
-    const maxQuantity = line.eligible ? Math.max(0, Math.min(...line.components.map((item) => {
+    const eligible = line.eligible && line.components.length > 0 && !invalid.has(line.id);
+    const maxQuantity = eligible ? Math.max(0, Math.min(...line.components.map((item) => {
       const others = (demand.get(item.variantId) ?? 0) - item.quantity * line.quantity;
       return Math.floor((item.variant.onHand - item.variant.reserved - others) / item.quantity);
     }))) : 0;
     const noStock = line.components.some((item) => item.variant.onHand - item.variant.reserved < item.quantity);
-    const status: CartItemStatus = !line.eligible ? "UNAVAILABLE" : noStock ? "OUT_OF_STOCK" : line.quantity > maxQuantity ? "INSUFFICIENT_STOCK" : "AVAILABLE";
-    states.set(line.id, { status, maxQuantity, lineSubtotal: line.eligible ? safeInteger(line.unitPrice * line.quantity) : null });
+    // Read availability is symmetric: every line sharing overcommitted stock fails.
+    const status: CartItemStatus = invalid.has(line.id) ? "UNAVAILABLE" : line.selectionIssue === "INCOMPLETE" ? "SELECTION_REQUIRED" : !eligible ? "UNAVAILABLE" : noStock ? "OUT_OF_STOCK" : line.quantity > maxQuantity ? "INSUFFICIENT_STOCK" : "AVAILABLE";
+    states.set(line.id, { status, maxQuantity, lineSubtotal: eligible ? safeInteger(line.unitPrice * line.quantity) : null });
   }
   const selectionItems = lines.map((line) => ({ id: line.id, type: line.type, status: states.get(line.id)!.status, lineSubtotal: states.get(line.id)!.lineSubtotal }));
   return {
@@ -94,17 +120,22 @@ export const hydrateCart = async (
     items: { ...cartInclude.items, where: { id: { in: variants } } },
     combos: { where: { id: { in: combos } }, include: { combo: { include: comboInclude }, selections: { include: { variant: { select: { size: true } } } } } },
   } }) : null;
-  const mapped = mapCart(cart, publicIds, now);
   const { states, summary } = summarizeLines(lines);
+  const mapped = mapCart(cart ? { ...cart, items: cart.items.filter((item) => states.get(item.id)?.status !== "UNAVAILABLE") } : null, publicIds, now);
   const mappedItems = new Map(mapped.items.map((item) => [item.id, item]));
+  for (const item of cart?.items ?? []) if (!mappedItems.has(item.id)) mappedItems.set(item.id, {
+    id: item.id, type: "VARIANT", variantId: item.variantId, quantity: item.quantity,
+    ...states.get(item.id)!, product: null, variant: null, regularPrice: null, unitPrice: null,
+  });
   for (const item of cart?.combos ?? []) {
     const state = states.get(item.id)!;
     const visible = isComboPublic(item.combo, publicIds, now);
     const resolved = resolveComboSelections(item.combo, item.selections);
     mappedItems.set(item.id, {
-      id: item.id, type: "COMBO", comboId: item.comboId, variantId: null, quantity: item.quantity,
-      ...state, combo: visible ? mapCombo(item.combo, now) : null,
-      requiresSelection: visible && !resolved,
+      id: item.id, type: "COMBO", comboId: visible ? item.comboId : null, variantId: null, quantity: item.quantity,
+      ...state, combo: visible ? mapCombo(item.combo, now, publicIds) : null,
+      requiresSelection: visible && (!resolved || lines.find((line) => line.id === item.id)?.selectionIssue === "INVALID"),
+      selectionIssue: visible ? lines.find((line) => line.id === item.id)?.selectionIssue ?? null : null,
       selections: visible ? item.selections.map((selection) => ({ comboItemId: selection.comboItemId, variantId: selection.variantId, size: selection.variant.size })) : [],
       product: null, variant: null, regularPrice: null,
       unitPrice: state.status === "UNAVAILABLE" ? null : item.combo.price,

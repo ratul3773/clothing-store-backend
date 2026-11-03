@@ -75,7 +75,7 @@ const addCombo = catchAsync(async (req: Request, res: Response) => {
   respond(res, data, "Combo added to cart");
 });
 const updateCombo = catchAsync(async (req: Request, res: Response) => {
-  const data = await CartService.updateCombo(ownerFor(req), req.params.itemId as string, req.body as UpdateCartItemInput);
+  const data = await CartService.updateCombo(ownerFor(req), req.params.itemId as string, req.body);
   renewGuestCookie(req, res);
   respond(res, data, "Cart combo updated");
 });

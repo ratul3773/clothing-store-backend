@@ -3,7 +3,7 @@ import { comboCapacity } from "./combo.rules";
 import type { ComboWithItems } from "./combo.select";
 import { comboPricing, componentUnitPrice } from "./combo.pricing";
 
-export const mapCombo = (combo: ComboWithItems, now = new Date()) => {
+export const mapCombo = (combo: ComboWithItems, now: Date, publicIds: ReadonlySet<string>) => {
   const items = combo.items.map(({ id, colorId, quantity, color }) => {
     const image = color.product.images.find((image) => image.colorId === colorId) ?? color.product.images[0];
     return {
@@ -17,7 +17,7 @@ export const mapCombo = (combo: ComboWithItems, now = new Date()) => {
       })),
     };
   });
-  const maxQuantity = comboCapacity(combo);
+  const maxQuantity = comboCapacity(combo, publicIds, now);
   return {
     id: combo.id, name: combo.name, slug: combo.slug, description: combo.description,
     price: combo.price, currency: "BDT" as const, moneyUnit: "taka" as const,

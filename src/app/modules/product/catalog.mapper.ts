@@ -4,8 +4,8 @@ import { mapCombo } from "../combo/combo.mapper";
 // A separate detail key avoids collisions with independently generated combo slugs.
 export const comboProductSlug = (id: string) => `combo--${id}`;
 
-export const mapComboProduct = (combo: ComboWithItems) => {
-  const dto = mapCombo(combo);
+export const mapComboProduct = (combo: ComboWithItems, now: Date, publicIds: ReadonlySet<string>) => {
+  const dto = mapCombo(combo, now, publicIds);
   const urls = [...new Set(dto.items.flatMap((item) => item.product.imageUrl ? [item.product.imageUrl] : []))];
   return {
     type: "COMBO" as const,
