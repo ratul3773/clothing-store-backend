@@ -62,6 +62,8 @@ export type CartComboDto = {
   status: CartItemStatus;
   maxQuantity: number;
   combo: ReturnType<typeof import("../combo/combo.mapper").mapCombo> | null;
+  requiresSelection: boolean;
+  selections: Array<{ comboItemId: string; variantId: string; size: string }>;
   product: null;
   variant: null;
   regularPrice: null;

@@ -4,7 +4,7 @@ import { prisma } from "../../../lib/prisma";
 import { paginationHelpers, type TPaginationOptions } from "../../../helpers/paginationHelper";
 import { buildPaginationMeta } from "../../../utils/pagination";
 import { getPublicCategoryIds, isVariantPublic } from "../product/catalog.rules";
-import { isComboPublic, lockCombo } from "../combo/combo.rules";
+import { isComboPublic, lockCombo, resolveComboSelections, comboSelectionKey } from "../combo/combo.rules";
 import { comboAvailabilitySelect } from "../combo/combo.select";
 import { CART_QUANTITY_STORAGE_MAX } from "./cart.constants";
 import type { AddCartItemInput, AddCartComboInput, CartOwner, UpdateCartItemInput } from "./cart.interface";
@@ -16,7 +16,7 @@ import { lockCustomer, lockGuest, normalizeOwner, ownerWhere } from "./cart.repo
 const mutationSelect = {
   id: true, version: true,
   items: { select: { id: true, variantId: true, quantity: true } },
-  combos: { select: { id: true, comboId: true, quantity: true } },
+  combos: { select: { id: true, comboId: true, selectionKey: true, quantity: true } },
 } satisfies Prisma.CartSelect;
 type MutationCart = Prisma.CartGetPayload<{ select: typeof mutationSelect }>;
 
@@ -78,8 +78,16 @@ const retryCartTransaction = async <T>(run: () => Promise<T>): Promise<T> => {
   for (let attempt = 0; ; attempt++) {
     try { return await run(); }
     catch (error) {
+      const adapter = error instanceof Prisma.PrismaClientKnownRequestError
+        ? error.meta?.driverAdapterError as { cause?: { originalCode?: unknown; kind?: unknown } } | undefined : undefined;
+      const serializationFailure = error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2010" &&
+        ([error.meta?.code, adapter?.cause?.originalCode].some((code) => code === "40001" || code === "40P01") || adapter?.cause?.kind === "TransactionWriteConflict");
       const retryable = error instanceof Prisma.PrismaClientKnownRequestError &&
-        (error.code === "P2034" || (error.code === "P2010" && error.meta?.code === "40001"));
+        (error.code === "P2034" || serializationFailure ||
+          // A snapshot taken before an owner-lock waiter resumes may not see a
+          // cart or configuration inserted by the preceding writer. Roll back
+          // and recheck its version in a fresh snapshot instead of leaking P2002.
+          (error.code === "P2002" && ["Cart", "Customer", "CartItem", "CartCombo"].includes(String(error.meta?.modelName))));
       if (!retryable) throw error;
       if (attempt >= 2) throw new ApiError(409, "Cart or catalogue changed concurrently. Reload your cart and try again.");
     }
@@ -87,8 +95,8 @@ const retryCartTransaction = async <T>(run: () => Promise<T>): Promise<T> => {
 };
 
 const assertStock = async (tx: Prisma.TransactionClient, cartId: string | undefined,
-  components: DemandLine["components"], quantity: number, exclude?: string) => {
-  const lines = cartId ? await loadDemandLines(tx, cartId, await getPublicCategoryIds(tx), new Date()) : [];
+  components: DemandLine["components"], quantity: number, exclude?: string, publicIds?: ReadonlySet<string>) => {
+  const lines = cartId ? await loadDemandLines(tx, cartId, publicIds ?? await getPublicCategoryIds(tx), new Date()) : [];
   if (quantity > remainingCapacity(components, demandForLines(lines, exclude)))
     throw new ApiError(409, "Requested quantity exceeds available stock across cart items and combos");
 };
@@ -99,8 +107,9 @@ const addItem = (owner: CartOwner | string, input: AddCartItemInput) => mutate(o
   const quantity = (existing?.quantity ?? 0) + input.quantity;
   assertQuantity(quantity);
   const variant = await tx.variant.findUnique({ where: { id: input.variantId }, select: variantAvailabilitySelect });
-  if (!variant || !isVariantPublic(variant, await getPublicCategoryIds(tx), new Date())) throw new ApiError(404, "Variant is not available");
-  await assertStock(tx, cart?.id, [{ variantId: variant.id, quantity: 1, variant }], quantity, existing?.id);
+  const publicIds = await getPublicCategoryIds(tx);
+  if (!variant || !isVariantPublic(variant, publicIds, new Date())) throw new ApiError(404, "Variant is not available");
+  await assertStock(tx, cart?.id, [{ variantId: variant.id, quantity: 1, variant }], quantity, existing?.id, publicIds);
   const cartId = await ensureCart(tx, cart, resolved);
   if (existing) await tx.cartItem.update({ where: { id: existing.id }, data: { quantity } });
   else await tx.cartItem.create({ data: { cartId, variantId: variant.id, quantity } });
@@ -108,17 +117,24 @@ const addItem = (owner: CartOwner | string, input: AddCartItemInput) => mutate(o
 });
 
 const addCombo = (owner: CartOwner | string, input: AddCartComboInput) => mutate(owner, input.version, async (tx, cart, resolved) => {
-  const existing = cart?.combos.find((item) => item.comboId === input.comboId);
+  const selectionKey = comboSelectionKey(input.selections);
+  const existing = cart?.combos.find((item) => item.comboId === input.comboId && item.selectionKey === selectionKey);
   assertQuantity(input.quantity);
   const quantity = (existing?.quantity ?? 0) + input.quantity;
   assertQuantity(quantity);
   await lockCombo(tx, input.comboId);
   const combo = await tx.combo.findUniqueOrThrow({ where: { id: input.comboId }, select: comboAvailabilitySelect });
-  if (!isComboPublic(combo, await getPublicCategoryIds(tx), new Date())) throw new ApiError(404, "Combo is not available");
-  await assertStock(tx, cart?.id, combo.items, quantity, existing?.id);
+  const publicIds = await getPublicCategoryIds(tx);
+  if (!isComboPublic(combo, publicIds, new Date())) throw new ApiError(404, "Combo is not available");
+  const components = resolveComboSelections(combo, input.selections);
+  if (!components) throw new ApiError(422, "Choose exactly one size belonging to each included product/color");
+  if (components.some((item) => !isVariantPublic(item.variant, publicIds, new Date()))) throw new ApiError(404, "A selected size is no longer available");
+  await assertStock(tx, cart?.id, components, quantity, existing?.id, publicIds);
   const cartId = await ensureCart(tx, cart, resolved);
   if (existing) await tx.cartCombo.update({ where: { id: existing.id }, data: { quantity } });
-  else await tx.cartCombo.create({ data: { cartId, comboId: combo.id, quantity } });
+  else await tx.cartCombo.create({ data: { cartId, comboId: combo.id, quantity, selectionKey,
+    selections: { create: input.selections.map(({ comboItemId, variantId }) => ({ comboItemId, variantId })) },
+  } });
   return cartId;
 });
 

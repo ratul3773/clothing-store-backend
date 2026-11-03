@@ -9,7 +9,10 @@ const positiveQueryInteger = (max: number) =>
 
 export const CartValidation = {
   addCombo: z.object({
-    body: z.object({ comboId: z.string().uuid(), quantity, version }).strict(),
+    body: z.object({ comboId: z.string().uuid(), quantity, version,
+      selections: z.array(z.object({ comboItemId: z.string().uuid(), variantId: z.string().uuid() }).strict()).min(1).max(3)
+        .refine((items) => new Set(items.map((item) => item.comboItemId)).size === items.length, { message: "Choose one size for each combo component" }),
+    }).strict(),
     query: z.object({}).strict().default({}),
   }),
   getCart: z.object({ query: z.object({

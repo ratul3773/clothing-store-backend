@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { comboItemsError } from "./combo.rules";
 
-const items = z.array(z.object({ variantId: z.string().uuid(), quantity: z.number().int().min(1).max(3) }).strict())
+const items = z.array(z.object({ colorId: z.string().uuid(), quantity: z.number().int().min(1).max(3) }).strict())
   .min(1).max(3).superRefine((items, ctx) => {
     const message = comboItemsError(items);
     if (message) ctx.addIssue({ code: "custom", message });

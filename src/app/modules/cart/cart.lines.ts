@@ -1,6 +1,6 @@
 import { Prisma } from "../../../generated/prisma/client";
 import { comboAvailabilitySelect, comboInclude } from "../combo/combo.select";
-import { addVariantDemand, isComboPublic, safeInteger, type VariantDemand } from "../combo/combo.rules";
+import { addVariantDemand, isComboPublic, safeInteger, resolveComboSelections, type VariantDemand } from "../combo/combo.rules";
 import { mapCombo } from "../combo/combo.mapper";
 import { isVariantPublic, resolveActiveOffer } from "../product/catalog.rules";
 import type { CartDto, CartItemStatus } from "./cart.interface";
@@ -13,6 +13,7 @@ export type DemandLine = {
 };
 export const cartComboSummarySelect = {
   id: true, comboId: true, quantity: true,
+  selections: { select: { comboItemId: true, variantId: true } },
   combo: { select: comboAvailabilitySelect },
 } satisfies Prisma.CartComboSelect;
 
@@ -26,10 +27,14 @@ export const loadDemandLines = async (tx: Prisma.TransactionClient, cartId: stri
       eligible: isVariantPublic(item.variant, publicIds, now),
       components: [{ variantId: item.variant.id, quantity: 1, variant: item.variant }],
     })),
-    ...combos.map((item): DemandLine => ({
-      id: item.id, type: "COMBO", quantity: item.quantity, unitPrice: item.combo.price,
-      eligible: isComboPublic(item.combo, publicIds, now), components: item.combo.items,
-    })),
+    ...combos.map((item): DemandLine => {
+      const components = resolveComboSelections(item.combo, item.selections);
+      return {
+        id: item.id, type: "COMBO", quantity: item.quantity, unitPrice: item.combo.price,
+        eligible: isComboPublic(item.combo, publicIds, now) && !!components && components.every((item) => isVariantPublic(item.variant, publicIds, now)),
+        components: components ?? [],
+      };
+    }),
   ];
 };
 
@@ -87,16 +92,20 @@ export const hydrateCart = async (
   const combos = ids.filter((item) => item.type === "COMBO").map((item) => item.id);
   const cart = header ? await tx.cart.findUnique({ where: { id: header.id }, include: {
     items: { ...cartInclude.items, where: { id: { in: variants } } },
-    combos: { where: { id: { in: combos } }, include: { combo: { include: comboInclude } } },
+    combos: { where: { id: { in: combos } }, include: { combo: { include: comboInclude }, selections: { include: { variant: { select: { size: true } } } } } },
   } }) : null;
   const mapped = mapCart(cart, publicIds, now);
   const { states, summary } = summarizeLines(lines);
   const mappedItems = new Map(mapped.items.map((item) => [item.id, item]));
   for (const item of cart?.combos ?? []) {
     const state = states.get(item.id)!;
+    const visible = isComboPublic(item.combo, publicIds, now);
+    const resolved = resolveComboSelections(item.combo, item.selections);
     mappedItems.set(item.id, {
       id: item.id, type: "COMBO", comboId: item.comboId, variantId: null, quantity: item.quantity,
-      ...state, combo: state.status === "UNAVAILABLE" ? null : mapCombo(item.combo),
+      ...state, combo: visible ? mapCombo(item.combo, now) : null,
+      requiresSelection: visible && !resolved,
+      selections: visible ? item.selections.map((selection) => ({ comboItemId: selection.comboItemId, variantId: selection.variantId, size: selection.variant.size })) : [],
       product: null, variant: null, regularPrice: null,
       unitPrice: state.status === "UNAVAILABLE" ? null : item.combo.price,
     });

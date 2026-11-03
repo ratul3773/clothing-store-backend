@@ -22,21 +22,22 @@ export const createCartMergeService = (db: PrismaClient) => ({
       const source = await loadDemandLines(tx, guest.id, publicIds, now);
       // Source combo references remain until the final delete, preventing content edits
       // throughout the transfer without acquiring combo locks in conflicting orders.
-      const sourceCombos = await tx.cartCombo.findMany({ where: { cartId: guest.id }, select: { id: true, comboId: true } });
-      const comboIds = new Map(sourceCombos.map((item) => [item.id, item.comboId]));
+      const sourceCombos = await tx.cartCombo.findMany({ where: { cartId: guest.id }, select: { id: true, comboId: true, selectionKey: true, selections: { select: { comboItemId: true, variantId: true } } } });
+      const comboIds = new Map(sourceCombos.map((item) => [item.id, item]));
       let target = customer ? await tx.cart.findUnique({ where: { customerId: customer.id }, select: { id: true } }) : null;
       const targetLines = target ? await loadDemandLines(tx, target.id, publicIds, now) : [];
-      const targetCombos = target ? await tx.cartCombo.findMany({ where: { cartId: target.id }, select: { id: true, comboId: true } }) : [];
-      const targetComboIds = new Map(targetCombos.map((item) => [item.id, item.comboId]));
+      const targetCombos = target ? await tx.cartCombo.findMany({ where: { cartId: target.id }, select: { id: true, comboId: true, selectionKey: true, selections: { select: { comboItemId: true, variantId: true } } } }) : [];
+      const targetComboIds = new Map(targetCombos.map((item) => [item.id, item]));
       const keyFor = (type: "VARIANT" | "COMBO", id: string) => `${type}:${id}`;
       const quantities = new Map(targetLines.map((line) => [
-        keyFor(line.type, line.type === "VARIANT" ? line.components[0]!.variantId : targetComboIds.get(line.id)!), line.quantity,
+        keyFor(line.type, line.type === "VARIANT" ? line.components[0]!.variantId : `${targetComboIds.get(line.id)!.comboId}:${targetComboIds.get(line.id)!.selectionKey}`), line.quantity,
       ]));
       const demand = demandForLines(targetLines);
       const report: CartMergeReport = { merged: true, adjustments: [] };
       for (const line of source) {
-        const identifier = line.type === "VARIANT" ? line.components[0]!.variantId : comboIds.get(line.id)!;
-        const key = keyFor(line.type, identifier);
+        const configuration = line.type === "COMBO" ? comboIds.get(line.id)! : null;
+        const identifier = line.type === "VARIANT" ? line.components[0]!.variantId : configuration!.comboId;
+        const key = keyFor(line.type, configuration ? `${identifier}:${configuration.selectionKey}` : identifier);
         const current = quantities.get(key) ?? 0;
         const requested = current + line.quantity;
         const added = line.eligible ? Math.max(0, Math.min(line.quantity, remainingCapacity(line.components, demand), CART_QUANTITY_STORAGE_MAX - current)) : 0;
@@ -54,8 +55,8 @@ export const createCartMergeService = (db: PrismaClient) => ({
           create: { cartId: target.id, variantId: identifier, quantity: retained }, update: { quantity: retained },
         });
         else await tx.cartCombo.upsert({
-          where: { cartId_comboId: { cartId: target.id, comboId: identifier } },
-          create: { cartId: target.id, comboId: identifier, quantity: retained }, update: { quantity: retained },
+          where: { cartId_comboId_selectionKey: { cartId: target.id, comboId: identifier, selectionKey: configuration!.selectionKey } },
+          create: { cartId: target.id, comboId: identifier, quantity: retained, selectionKey: configuration!.selectionKey, selections: { create: configuration!.selections } }, update: { quantity: retained },
         });
         quantities.set(key, retained);
         addVariantDemand(demand, line.components, added);

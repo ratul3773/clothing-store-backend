@@ -18,33 +18,50 @@ model Combo {
 }
 
 model ComboItem {
-  // A combo is made of 2-3 specific VARIANTS (same product or different products).
-  // Carts check stock; a future checkout reserves per variant x quantity.
+  // Product/color is fixed; customers choose one size for all repeated pieces.
   id        String @id @default(uuid())
   comboId   String
-  variantId String
+  colorId   String
   quantity  Int    @default(1)
 
   combo   Combo   @relation(fields: [comboId], references: [id], onDelete: Cascade)
-  variant Variant @relation(fields: [variantId], references: [id], onDelete: Restrict)
+  color ProductColor @relation(fields: [colorId], references: [id], onDelete: Restrict)
+  selections CartComboSelection[]
 
-  @@unique([comboId, variantId])
-  @@index([variantId])
+  @@unique([comboId, colorId])
+  @@index([colorId])
   @@map("combo_items")
 }
 
 model CartCombo {
-  // A combo in the cart is one line (comboId + quantity); its variants are fixed by the combo.
+  // Identical size configurations merge; different configurations remain separate lines.
   id        String   @id @default(uuid())
   cartId    String
   comboId   String
   quantity  Int
+  selectionKey String
   createdAt DateTime @default(now())
 
   cart  Cart  @relation(fields: [cartId], references: [id], onDelete: Cascade)
   combo Combo @relation(fields: [comboId], references: [id], onDelete: Cascade)
+  selections CartComboSelection[]
 
-  @@unique([cartId, comboId])
+  @@unique([cartId, comboId, selectionKey])
   @@index([comboId])
   @@map("cart_combos")
+}
+
+model CartComboSelection {
+  cartComboId String
+  comboItemId String
+  variantId   String
+
+  cartCombo CartCombo @relation(fields: [cartComboId], references: [id], onDelete: Cascade)
+  comboItem ComboItem @relation(fields: [comboItemId], references: [id], onDelete: Restrict)
+  variant Variant @relation(fields: [variantId], references: [id], onDelete: Restrict)
+
+  @@id([cartComboId, comboItemId])
+  @@index([comboItemId])
+  @@index([variantId])
+  @@map("cart_combo_selections")
 }

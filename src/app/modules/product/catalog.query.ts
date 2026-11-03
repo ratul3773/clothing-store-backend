@@ -20,17 +20,17 @@ export const publicCatalogQuery = (
     AND (SELECT SUM(ci.quantity) FROM combo_items ci WHERE ci."comboId" = c.id) BETWEEN 2 AND 3
     AND NOT EXISTS (
       SELECT 1 FROM combo_items ci
-      JOIN variants v ON v.id = ci."variantId"
-      JOIN products cp ON cp.id = v."productId"
+      JOIN product_colors pc ON pc.id = ci."colorId"
+      JOIN products cp ON cp.id = pc."productId"
       WHERE ci."comboId" = c.id AND (
-        ci.quantity < 1 OR ci.quantity > 3 OR NOT v."isActive"
+        ci.quantity < 1 OR ci.quantity > 3 OR NOT EXISTS (SELECT 1 FROM variants cv WHERE cv."colorId" = pc.id AND cv."productId" = pc."productId" AND cv."isActive")
         OR cp.status <> 'ACTIVE' OR cp."publishedAt" IS NULL OR cp."publishedAt" > ${now}
         OR NOT (${inIds(Prisma.sql`cp."categoryId"`, publicIds)})
       )
     )`];
   if (categoryIds) combo.push(Prisma.sql`EXISTS (
-    SELECT 1 FROM combo_items ci JOIN variants v ON v.id = ci."variantId"
-    JOIN products cp ON cp.id = v."productId"
+    SELECT 1 FROM combo_items ci JOIN product_colors pc ON pc.id = ci."colorId"
+    JOIN products cp ON cp.id = pc."productId"
     WHERE ci."comboId" = c.id AND ${inIds(Prisma.sql`cp."categoryId"`, categoryIds)}
   )`);
   if (query.ids?.length) {
@@ -46,11 +46,11 @@ export const publicCatalogQuery = (
         AND strpos(lower(v.sku), lower(${term})) > 0))`);
     combo.push(Prisma.sql`(strpos(lower(c.name), lower(${term})) > 0
       OR strpos(lower(c.description), lower(${term})) > 0
-      OR EXISTS (SELECT 1 FROM combo_items ci JOIN variants v ON v.id = ci."variantId"
-        JOIN products cp ON cp.id = v."productId" WHERE ci."comboId" = c.id
+      OR EXISTS (SELECT 1 FROM combo_items ci JOIN product_colors pc ON pc.id = ci."colorId"
+        JOIN products cp ON cp.id = pc."productId" WHERE ci."comboId" = c.id
         AND (strpos(lower(cp.name), lower(${term})) > 0
           OR strpos(lower(cp.code), lower(${term})) > 0
-          OR strpos(lower(v.sku), lower(${term})) > 0)))`);
+          OR EXISTS (SELECT 1 FROM variants cv WHERE cv."colorId" = pc.id AND cv."productId" = pc."productId" AND strpos(lower(cv.sku), lower(${term})) > 0))))`);
   }
   if (query.badge) {
     product.push(Prisma.sql`${query.badge}::"ProductBadge" = ANY(p.badges)`);
@@ -69,8 +69,8 @@ export const publicCatalogQuery = (
     product.push(Prisma.sql`EXISTS (SELECT 1 FROM variants v WHERE v."productId" = p.id
       AND v."isActive" AND v."onHand" > v.reserved) = ${available}`);
     combo.push(Prisma.sql`NOT EXISTS (SELECT 1 FROM combo_items ci
-      JOIN variants v ON v.id = ci."variantId" WHERE ci."comboId" = c.id
-      AND v."onHand" - v.reserved < ci.quantity) = ${available}`);
+      WHERE ci."comboId" = c.id
+      AND NOT EXISTS (SELECT 1 FROM variants v WHERE v."colorId" = ci."colorId" AND v."productId" = (SELECT pc."productId" FROM product_colors pc WHERE pc.id = ci."colorId") AND v."isActive" AND v."onHand" - v.reserved >= ci.quantity)) = ${available}`);
   }
   if (query.offers === "true") {
     product.push(Prisma.sql`EXISTS (SELECT 1 FROM product_offers o WHERE o."productId" = p.id

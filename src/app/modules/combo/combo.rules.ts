@@ -10,12 +10,12 @@ export const safeInteger = (value: number): number => {
   return value;
 };
 
-export const comboItemsError = (items: readonly VariantDemand[]): string | null => {
+export const comboItemsError = (items: readonly { colorId: string; quantity: number }[]): string | null => {
   if (items.some((item) => !Number.isInteger(item.quantity) || item.quantity < 1 || item.quantity > 3))
     return "Component quantities must be positive integers up to three";
   const total = items.reduce((sum, item) => sum + item.quantity, 0);
   if (total < 2 || total > 3) return "A combo must contain two or three physical pieces";
-  if (new Set(items.map((item) => item.variantId)).size !== items.length) return "Duplicate variant IDs are not allowed";
+  if (new Set(items.map((item) => item.colorId)).size !== items.length) return "Duplicate colors are not allowed; use quantity for repeated pieces";
   return null;
 };
 
@@ -23,12 +23,31 @@ export const isComboPublic = (combo: ComboAvailability, publicIds: ReadonlySet<s
   combo.isActive && (!combo.startsAt || combo.startsAt <= now) &&
   (!combo.endsAt || combo.endsAt > now) &&
   comboItemsError(combo.items) === null &&
-  combo.items.every((item) => isVariantPublic(item.variant, publicIds, now));
+  combo.items.every((item) => item.color.variants.some((variant) => variant.productId === item.color.product.id && isVariantPublic({ ...variant, product: item.color.product }, publicIds, now)));
 
-export const comboCapacity = (combo: ComboAvailability) => Math.max(0, Math.min(
-  ...combo.items.map((item) => Math.floor((item.variant.onHand - item.variant.reserved) / item.quantity)),
+export const comboCapacity = (combo: ComboAvailability) => !combo.items.length ? 0 : Math.max(0, Math.min(
+  ...combo.items.map((item) => Math.max(0, ...item.color.variants.filter((variant) => variant.isActive && variant.productId === item.color.product.id).map((variant) => Math.floor((variant.onHand - variant.reserved) / item.quantity)))),
   0x7fffffff,
 ));
+
+export type ComboSelection = { comboItemId: string; variantId: string };
+export const comboSelectionKey = (selections: readonly ComboSelection[]) => [...selections]
+  .sort((a, b) => a.comboItemId < b.comboItemId ? -1 : a.comboItemId > b.comboItemId ? 1 : 0)
+  .map((item) => `${item.comboItemId}:${item.variantId}`).join("|");
+
+/** Never infer a customer's size, including for a component with only one variant. */
+export const resolveComboSelections = (combo: ComboAvailability, selections: readonly ComboSelection[]) => {
+  if (selections.length !== combo.items.length || new Set(selections.map((item) => item.comboItemId)).size !== selections.length)
+    return null;
+  const byItem = new Map(selections.map((item) => [item.comboItemId, item.variantId]));
+  const components = [];
+  for (const item of combo.items) {
+    const variant = item.color.variants.find((variant) => variant.id === byItem.get(item.id));
+    if (!variant || variant.productId !== item.color.product.id) return null;
+    components.push({ variantId: variant.id, quantity: item.quantity, variant: { ...variant, product: item.color.product } });
+  }
+  return components;
+};
 
 // Shared expansion boundary for carts and a future transactional checkout.
 export const addVariantDemand = (demand: Map<string, number>, items: readonly VariantDemand[], quantity: number) => {

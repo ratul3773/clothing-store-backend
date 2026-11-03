@@ -14,6 +14,7 @@ import { getPublicCategoryIds as loadPublicCategoryIds } from "./catalog.rules";
 import { publicCatalogQuery, publicCatalogOrder } from "./catalog.query";
 import { mapComboProduct } from "./catalog.mapper";
 import { comboInclude } from "../combo/combo.select";
+import { isComboPublic } from "../combo/combo.rules";
 
 type CategoryNode = {
   id: string;
@@ -168,8 +169,10 @@ const getPublicProduct = async (slug: string) => prisma.$transaction(async (tx) 
     },
     include: productRelationsInclude,
   });
-  if (!product) throw new ApiError(httpStatus.NOT_FOUND, "Product not found");
-  return mapPublicProduct(product, now);
+  if (product) return mapPublicProduct(product, now);
+  const combo = await tx.combo.findUnique({ where: { slug }, include: comboInclude });
+  if (!combo || !isComboPublic(combo, publicCategoryIds, now)) throw new ApiError(httpStatus.NOT_FOUND, "Product not found");
+  return mapComboProduct(combo);
 }, { isolationLevel: "RepeatableRead" });
 
 const listAdminProducts = async (query: AdminProductQuery) => {

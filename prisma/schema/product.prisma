@@ -85,6 +85,7 @@ model ProductColor {
   product  Product        @relation(fields: [productId], references: [id], onDelete: Cascade)
   variants Variant[]
   images   ProductImage[]
+  comboItems ComboItem[]
 
   @@unique([productId, name])
   @@index([productId, sortOrder])
@@ -174,7 +175,7 @@ model Variant {
   movements      StockMovement[]
   notifyRequests StockNotifyRequest[]
   cartItems      CartItem[]
-  comboItems     ComboItem[]
+  comboSelections CartComboSelection[]
 
   @@unique([productId, colorId, size])
   @@index([productId, isActive])
