@@ -31,12 +31,6 @@ export const CartValidation = {
     body: z.object({ quantity, version }).strict(),
     query: z.object({}).strict().default({}),
   }),
-  updateCombo: z.object({
-    params: itemParams,
-    body: z.object({ quantity: quantity.optional(), selections: selections.optional(), version }).strict()
-      .refine((body) => body.quantity !== undefined || body.selections !== undefined, { message: "Provide quantity or selections" }),
-    query: z.object({}).strict().default({}),
-  }),
   removeItem: z.object({
     params: itemParams,
     query: z

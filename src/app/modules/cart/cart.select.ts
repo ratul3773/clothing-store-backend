@@ -66,6 +66,7 @@ export type CartLine = CartWithItems["items"][number];
 // names, images, colours, or other display data from off-page items.
 export const cartSummarySelect = {
   id: true,
+  createdAt: true,
   quantity: true,
   variant: {
     select: {

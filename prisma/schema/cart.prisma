@@ -27,5 +27,6 @@ model CartItem {
 
   @@unique([cartId, variantId])
   @@index([variantId])
+  @@index([cartId, createdAt, id])
   @@map("cart_items")
 }

@@ -4,6 +4,7 @@ import sendResponse from "../../../utils/sendResponse";
 import pick from "../../../utils/pick";
 import type { PaginationQuery } from "../../../utils/pagination";
 import { ComboService } from "./combo.service";
+import ApiError from "../../../errors/ApiError";
 
 const list = (admin: boolean) => catchAsync(async (req: Request, res: Response) => {
   const result = await ComboService.list(pick(req.validatedQuery as PaginationQuery, ["page", "limit"]), admin);
@@ -14,12 +15,23 @@ const detail = (admin: boolean) => catchAsync(async (req: Request, res: Response
   sendResponse(res, { statusCode: 200, success: true, message: "Combo retrieved", data });
 });
 export const ComboController = {
-  list: list(false), adminList: list(true), detail: detail(false), adminDetail: detail(true),
+  list: list(false),
+  adminList: list(true),
+  detail: detail(false),
+  adminDetail: detail(true),
   create: catchAsync(async (req: Request, res: Response) => {
+    const role = req.user?.role;
+    if (role !== "admin") {
+      throw new ApiError(403, "Forbidden: Only admins can create combos");
+    }
     const data = await ComboService.create(req.body);
     sendResponse(res, { statusCode: 201, success: true, message: "Combo created", data });
   }),
   update: catchAsync(async (req: Request, res: Response) => {
+    const role = req.user?.role;
+    if (role !== "admin") {
+      throw new ApiError(403, "Forbidden: Only admins can update combos");
+    }
     const data = await ComboService.update(req.params.id as string, req.body);
     sendResponse(res, { statusCode: 200, success: true, message: "Combo updated", data });
   }),

@@ -36,7 +36,10 @@ export const comboSelectionKey = (selections: readonly ComboSelection[]) => [...
   .map((item) => `${item.comboItemId}:${item.variantId}`).join("|");
 
 /** Never infer a customer's size, including for a component with only one variant. */
-export const resolveComboSelections = (combo: ComboAvailability, selections: readonly ComboSelection[]) => {
+export const resolveComboSelections = <
+  Product extends { id: string },
+  Variant extends { id: string; productId: string },
+>(combo: { items: readonly { id: string; quantity: number; color: { product: Product; variants: readonly Variant[] } }[] }, selections: readonly ComboSelection[]) => {
   if (selections.length !== combo.items.length || new Set(selections.map((item) => item.comboItemId)).size !== selections.length)
     return null;
   const byItem = new Map(selections.map((item) => [item.comboItemId, item.variantId]));

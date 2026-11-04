@@ -25,7 +25,6 @@ export type AddCartComboInput = z.infer<typeof CartValidation.addCombo>["body"];
 export type UpdateCartItemInput = z.infer<
   typeof CartValidation.updateItem
 >["body"];
-export type UpdateCartComboInput = z.infer<typeof CartValidation.updateCombo>["body"];
 export type CartVersionQuery = z.infer<
   typeof CartValidation.clearCart
 >["query"];

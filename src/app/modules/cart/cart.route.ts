@@ -76,7 +76,7 @@ router.patch(
   CartController.updateItem,
 );
 router.post("/combos", validateRequest(CartValidation.addCombo), CartController.addCombo);
-router.patch("/combos/:itemId", validateRequest(CartValidation.updateCombo), CartController.updateCombo);
+router.patch("/combos/:itemId", validateRequest(CartValidation.updateItem), CartController.updateCombo);
 router.delete("/combos/:itemId", validateRequest(CartValidation.removeItem), CartController.removeCombo);
 router.delete(
   "/items/:itemId",

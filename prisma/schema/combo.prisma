@@ -48,6 +48,7 @@ model CartCombo {
 
   @@unique([cartId, comboId, selectionKey])
   @@index([comboId])
+  @@index([cartId, createdAt, id])
   @@map("cart_combos")
 }
 
