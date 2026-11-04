@@ -1,7 +1,10 @@
 import { z } from "zod";
 import { comboItemsError } from "./combo.rules";
 
-const items = z.array(z.object({ colorId: z.string().uuid(), quantity: z.number().int().min(1).max(3) }).strict())
+const items = z.array(z.object({
+  colorId: z.string().uuid(), quantity: z.number().int().min(1).max(3),
+  variantIds: z.array(z.string().uuid()).min(1).refine((ids) => new Set(ids).size === ids.length, "Duplicate variants are not allowed").nullable().optional(),
+}).strict())
   .min(1).max(3).superRefine((items, ctx) => {
     const message = comboItemsError(items);
     if (message) ctx.addIssue({ code: "custom", message });

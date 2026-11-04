@@ -5,6 +5,9 @@ import type { ComboAvailability } from "./combo.select";
 
 export type VariantDemand = { variantId: string; quantity: number };
 
+export const isComboVariantAllowed = (item: { variantIds?: readonly string[] }, variantId: string) =>
+  !item.variantIds?.length || item.variantIds.includes(variantId);
+
 export const safeInteger = (value: number): number => {
   if (!Number.isSafeInteger(value)) throw new ApiError(422, "Cart amount exceeds the supported integer precision");
   return value;
@@ -23,10 +26,10 @@ export const isComboPublic = (combo: ComboAvailability, publicIds: ReadonlySet<s
   combo.isActive && (!combo.startsAt || combo.startsAt <= now) &&
   (!combo.endsAt || combo.endsAt > now) &&
   comboItemsError(combo.items) === null &&
-  combo.items.every((item) => item.color.variants.some((variant) => variant.productId === item.color.product.id && isVariantPublic({ ...variant, product: item.color.product }, publicIds, now)));
+  combo.items.every((item) => item.color.variants.some((variant) => isComboVariantAllowed(item, variant.id) && variant.productId === item.color.product.id && isVariantPublic({ ...variant, product: item.color.product }, publicIds, now)));
 
 export const comboCapacity = (combo: ComboAvailability, publicIds: ReadonlySet<string>, now = new Date()) => comboItemsError(combo.items) ? 0 : Math.max(0, Math.min(
-  ...combo.items.map((item) => Math.max(0, ...item.color.variants.filter((variant) => variant.productId === item.color.product.id && isVariantPublic({ ...variant, product: item.color.product }, publicIds, now)).map((variant) => Math.floor((variant.onHand - variant.reserved) / item.quantity)))),
+  ...combo.items.map((item) => Math.max(0, ...item.color.variants.filter((variant) => isComboVariantAllowed(item, variant.id) && variant.productId === item.color.product.id && isVariantPublic({ ...variant, product: item.color.product }, publicIds, now)).map((variant) => Math.floor((variant.onHand - variant.reserved) / item.quantity)))),
   0x7fffffff,
 ));
 
@@ -39,14 +42,14 @@ export const comboSelectionKey = (selections: readonly ComboSelection[]) => [...
 export const resolveComboSelections = <
   Product extends { id: string },
   Variant extends { id: string; productId: string },
->(combo: { items: readonly { id: string; quantity: number; color: { product: Product; variants: readonly Variant[] } }[] }, selections: readonly ComboSelection[]) => {
+>(combo: { items: readonly { id: string; quantity: number; variantIds?: readonly string[]; color: { product: Product; variants: readonly Variant[] } }[] }, selections: readonly ComboSelection[]) => {
   if (selections.length !== combo.items.length || new Set(selections.map((item) => item.comboItemId)).size !== selections.length)
     return null;
   const byItem = new Map(selections.map((item) => [item.comboItemId, item.variantId]));
   const components = [];
   for (const item of combo.items) {
     const variant = item.color.variants.find((variant) => variant.id === byItem.get(item.id));
-    if (!variant || variant.productId !== item.color.product.id) return null;
+    if (!variant || !isComboVariantAllowed(item, variant.id) || variant.productId !== item.color.product.id) return null;
     components.push({ variantId: variant.id, quantity: item.quantity, variant: { ...variant, product: item.color.product } });
   }
   return components;

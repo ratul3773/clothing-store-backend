@@ -23,6 +23,8 @@ model ComboItem {
   comboId   String
   colorId   String
   quantity  Int    @default(1)
+  // Empty means all variants of this color, including variants added later.
+  variantIds String[] @default([])
 
   combo   Combo   @relation(fields: [comboId], references: [id], onDelete: Cascade)
   color ProductColor @relation(fields: [colorId], references: [id], onDelete: Restrict)

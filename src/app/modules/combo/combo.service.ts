@@ -12,12 +12,22 @@ import { comboPricing } from "./combo.pricing";
 
 const publicWhere = async (tx: Prisma.TransactionClient): Promise<Prisma.ComboWhereInput> => {
   const now = new Date();
+  const unavailable = await tx.$queryRaw<Array<{ comboId: string }>>`
+    SELECT DISTINCT ci."comboId" FROM combo_items ci
+    JOIN product_colors pc ON pc.id = ci."colorId"
+    WHERE cardinality(ci."variantIds") > 0 AND NOT EXISTS (
+      SELECT 1 FROM variants v WHERE v.id = ANY(ci."variantIds")
+      AND v."colorId" = pc.id AND v."productId" = pc."productId" AND v."isActive"
+    )`;
   return {
+    id: { notIn: unavailable.map(({ comboId }) => comboId) },
     isActive: true,
     AND: [{ OR: [{ startsAt: null }, { startsAt: { lte: now } }] }, { OR: [{ endsAt: null }, { endsAt: { gt: now } }] }],
     items: {
       some: {},
-      every: { color: { product: { status: "ACTIVE", publishedAt: { lte: now }, categoryId: { in: [...await getPublicCategoryIds(tx)] } }, variants: { some: { isActive: true } } } },
+      every: {
+        color: { product: { status: "ACTIVE", publishedAt: { lte: now }, categoryId: { in: [...await getPublicCategoryIds(tx)] } }, variants: { some: { isActive: true } } },
+      },
     },
   };
 };
@@ -30,8 +40,18 @@ const assertColors = async (tx: Prisma.TransactionClient, items: CreateComboInpu
   });
   if (colors.length !== items.length) throw new ApiError(422, "One or more product colors do not exist");
   const byId = new Map(colors.map((color) => [color.id, color]));
-  return items.map((item) => ({ ...item, color: byId.get(item.colorId)! }));
+  return items.map((item) => {
+    const color = byId.get(item.colorId)!;
+    if (item.variantIds?.some((id) => !color.variants.some((variant) => variant.id === id && variant.productId === color.product.id)))
+      throw new ApiError(422, "Selected variants must belong to the component's product and color");
+    return { ...item, color };
+  });
 };
+
+const persistedItems = (items: CreateComboInput["items"]) => items.map((item) => ({
+  colorId: item.colorId, quantity: item.quantity, variantIds: item.variantIds ?? [],
+}));
+const variantKey = (ids: readonly string[] | null | undefined) => JSON.stringify([...(ids ?? [])].sort());
 
 const assertDiscount = (items: Parameters<typeof comboPricing>[0], price: number) => {
   const { combinedPrice } = comboPricing(items, price, new Date());
@@ -45,7 +65,7 @@ const list = (query: PaginationQuery, admin = false) => prisma.$transaction(asyn
   const rows = await tx.combo.findMany({ where, include: comboInclude, orderBy: [{ createdAt: "desc" }, { id: "asc" }], skip, take });
   const publicIds = await getPublicCategoryIds(tx);
   const now = new Date();
-  return { data: rows.map((row) => mapCombo(row, now, publicIds)), meta: buildPaginationMeta(total, page, limit) };
+  return { data: rows.map((row) => mapCombo(row, now, publicIds, admin)), meta: buildPaginationMeta(total, page, limit) };
 }, { isolationLevel: "RepeatableRead" });
 
 const detail = (identifier: string, admin = false) => prisma.$transaction(async (tx) => {
@@ -53,7 +73,7 @@ const detail = (identifier: string, admin = false) => prisma.$transaction(async 
     where: admin ? { id: identifier } : { ...await publicWhere(tx), slug: identifier }, include: comboInclude,
   });
   if (!combo) throw new ApiError(404, "Combo not found");
-  return mapCombo(combo, new Date(), await getPublicCategoryIds(tx));
+  return mapCombo(combo, new Date(), await getPublicCategoryIds(tx), admin);
 }, { isolationLevel: "RepeatableRead" });
 
 const create = (input: CreateComboInput) => prisma.$transaction(async (tx) => {
@@ -62,9 +82,9 @@ const create = (input: CreateComboInput) => prisma.$transaction(async (tx) => {
   const combo = await tx.combo.create({ data: {
     name: input.name, slug, description: input.description ?? null, price: input.price,
     startsAt: input.startsAt ?? null, endsAt: input.endsAt ?? null, isActive: input.isActive ?? true,
-    items: { create: input.items },
+    items: { create: persistedItems(input.items) },
   }, include: comboInclude });
-  return mapCombo(combo, new Date(), await getPublicCategoryIds(tx));
+  return mapCombo(combo, new Date(), await getPublicCategoryIds(tx), true);
 });
 
 const update = (id: string, input: UpdateComboInput) => prisma.$transaction(async (tx) => {
@@ -76,8 +96,11 @@ const update = (id: string, input: UpdateComboInput) => prisma.$transaction(asyn
   let replaceItems = false;
   let pricingItems: Parameters<typeof comboPricing>[0] = current.items;
   if (input.items) {
-    const existing = new Map(current.items.map((item) => [item.colorId, item.quantity]));
-    replaceItems = input.items.length !== existing.size || input.items.some((item) => existing.get(item.colorId) !== item.quantity);
+    const existing = new Map(current.items.map((item) => [item.colorId, item]));
+    replaceItems = input.items.length !== existing.size || input.items.some((item) => {
+      const previous = existing.get(item.colorId);
+      return !previous || previous.quantity !== item.quantity || variantKey(previous.variantIds) !== variantKey(item.variantIds);
+    });
     if (replaceItems) {
       if (await tx.cartCombo.count({ where: { comboId: id } })) throw new ApiError(409, "Combo contents cannot change while referenced by a cart. Deactivate it and create a new combo.");
       pricingItems = await assertColors(tx, input.items);
@@ -94,8 +117,8 @@ const update = (id: string, input: UpdateComboInput) => prisma.$transaction(asyn
   if (input.startsAt !== undefined) data.startsAt = input.startsAt;
   if (input.endsAt !== undefined) data.endsAt = input.endsAt;
   if (input.isActive !== undefined) data.isActive = input.isActive;
-  if (replaceItems) data.items = { create: input.items! };
-  return mapCombo(await tx.combo.update({ where: { id }, data, include: comboInclude }), new Date(), await getPublicCategoryIds(tx));
+  if (replaceItems) data.items = { create: persistedItems(input.items!) };
+  return mapCombo(await tx.combo.update({ where: { id }, data, include: comboInclude }), new Date(), await getPublicCategoryIds(tx), true);
 });
 
 export const ComboService = { list, detail, create, update };

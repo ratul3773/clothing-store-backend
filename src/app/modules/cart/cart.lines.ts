@@ -3,6 +3,7 @@ import { comboAvailabilitySelect, comboInclude } from "../combo/combo.select";
 import {
   addVariantDemand,
   isComboPublic,
+  isComboVariantAllowed,
   safeInteger,
   resolveComboSelections,
   type VariantDemand,
@@ -86,6 +87,7 @@ export const loadDemandLines = async (
         return (
           !component ||
           !variant ||
+          !isComboVariantAllowed(component, variant.id) ||
           variant.productId !== component.color.product.id ||
           !isVariantPublic(
             { ...variant, product: component.color.product },
@@ -150,7 +152,7 @@ export const loadStockDemand = async (
       quantity: true,
       selections: { select: { comboItemId: true, variantId: true } },
       combo: { select: { items: { select: {
-        id: true, quantity: true,
+        id: true, quantity: true, variantIds: true,
         color: { select: {
           product: { select: { id: true } },
           variants: { select: { id: true, productId: true } },

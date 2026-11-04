@@ -23,7 +23,8 @@ export const publicCatalogQuery = (
       JOIN product_colors pc ON pc.id = ci."colorId"
       JOIN products cp ON cp.id = pc."productId"
       WHERE ci."comboId" = c.id AND (
-        ci.quantity < 1 OR ci.quantity > 3 OR NOT EXISTS (SELECT 1 FROM variants cv WHERE cv."colorId" = pc.id AND cv."productId" = pc."productId" AND cv."isActive")
+        ci.quantity < 1 OR ci.quantity > 3 OR NOT EXISTS (SELECT 1 FROM variants cv WHERE cv."colorId" = pc.id AND cv."productId" = pc."productId" AND cv."isActive"
+          AND (cardinality(ci."variantIds") = 0 OR cv.id = ANY(ci."variantIds")))
         OR cp.status <> 'ACTIVE' OR cp."publishedAt" IS NULL OR cp."publishedAt" > ${now}
         OR NOT (${inIds(Prisma.sql`cp."categoryId"`, publicIds)})
       )
@@ -50,7 +51,7 @@ export const publicCatalogQuery = (
         JOIN products cp ON cp.id = pc."productId" WHERE ci."comboId" = c.id
         AND (strpos(lower(cp.name), lower(${term})) > 0
           OR strpos(lower(cp.code), lower(${term})) > 0
-          OR EXISTS (SELECT 1 FROM variants cv WHERE cv."colorId" = pc.id AND cv."productId" = pc."productId" AND strpos(lower(cv.sku), lower(${term})) > 0))))`);
+          OR EXISTS (SELECT 1 FROM variants cv WHERE cv."colorId" = pc.id AND cv."productId" = pc."productId" AND (cardinality(ci."variantIds") = 0 OR cv.id = ANY(ci."variantIds")) AND strpos(lower(cv.sku), lower(${term})) > 0))))`);
   }
   if (query.badge) {
     product.push(Prisma.sql`${query.badge}::"ProductBadge" = ANY(p.badges)`);
@@ -70,7 +71,7 @@ export const publicCatalogQuery = (
       AND v."isActive" AND v."onHand" > v.reserved) = ${available}`);
     combo.push(Prisma.sql`NOT EXISTS (SELECT 1 FROM combo_items ci
       WHERE ci."comboId" = c.id
-      AND NOT EXISTS (SELECT 1 FROM variants v WHERE v."colorId" = ci."colorId" AND v."productId" = (SELECT pc."productId" FROM product_colors pc WHERE pc.id = ci."colorId") AND v."isActive" AND v."onHand" - v.reserved >= ci.quantity)) = ${available}`);
+      AND NOT EXISTS (SELECT 1 FROM variants v WHERE v."colorId" = ci."colorId" AND v."productId" = (SELECT pc."productId" FROM product_colors pc WHERE pc.id = ci."colorId") AND v."isActive" AND (cardinality(ci."variantIds") = 0 OR v.id = ANY(ci."variantIds")) AND v."onHand" - v.reserved >= ci.quantity)) = ${available}`);
   }
   if (query.offers === "true") {
     product.push(Prisma.sql`EXISTS (SELECT 1 FROM product_offers o WHERE o."productId" = p.id

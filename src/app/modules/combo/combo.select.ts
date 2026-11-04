@@ -9,7 +9,7 @@ export const comboAvailabilitySelect = {
   id: true, price: true, isActive: true, startsAt: true, endsAt: true,
   items: {
     orderBy: { id: "asc" },
-    select: { id: true, colorId: true, quantity: true, color: { select: {
+    select: { id: true, colorId: true, quantity: true, variantIds: true, color: { select: {
       product: { select: { id: true, ...variantAvailabilitySelect.product.select } },
       variants: { select: sizeAvailabilitySelect },
     } } },
