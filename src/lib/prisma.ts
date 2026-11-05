@@ -8,10 +8,17 @@ const connectionString = `${config.database_url}`;
 const adapter = new PrismaPg({ connectionString });
 const prisma = new PrismaClient({
   adapter,
+  log: [{ emit: "event", level: "query" }],
   transactionOptions: {
     maxWait: 5_000,
     timeout: 20_000,
   },
 });
+
+if (process.env.LOG_QUERIES === "true") {
+  prisma.$on("query", (e) => {
+    console.log(`${e.duration}ms | ${e.query.slice(0, 120)}`);
+  });
+}
 
 export { prisma };

@@ -7,11 +7,13 @@ export type CartOwner =
   | { kind: "newGuest"; tokenHash: string }
   | { kind: "none" };
 
-export type CartMergeAdjustment = {
-  variantId: string;
+export type CartMergeAdjustment = (
+  | { type: "VARIANT"; variantId: string }
+  | { type: "COMBO"; comboId: string }
+) & {
   requestedQuantity: number;
   retainedQuantity: number;
-  reason: "STOCK_CAP" | "UNAVAILABLE";
+  reason: "STOCK_CAP" | "UNAVAILABLE" | "LINE_LIMIT";
 };
 export type CartMergeReport = {
   merged: boolean;
@@ -19,6 +21,7 @@ export type CartMergeReport = {
 };
 
 export type AddCartItemInput = z.infer<typeof CartValidation.addItem>["body"];
+export type AddCartComboInput = z.infer<typeof CartValidation.addCombo>["body"];
 export type UpdateCartItemInput = z.infer<
   typeof CartValidation.updateItem
 >["body"];
@@ -29,9 +32,11 @@ export type CartItemStatus =
   | "AVAILABLE"
   | "INSUFFICIENT_STOCK"
   | "OUT_OF_STOCK"
+  | "SELECTION_REQUIRED"
   | "UNAVAILABLE";
 
 export type CartItemDto = {
+  type: "VARIANT";
   id: string;
   variantId: string;
   quantity: number;
@@ -49,16 +54,35 @@ export type CartItemDto = {
   lineSubtotal: number | null;
 };
 
+export type CartComboDto = {
+  type: "COMBO";
+  id: string;
+  comboId: string | null;
+  variantId: null;
+  quantity: number;
+  status: CartItemStatus;
+  maxQuantity: number;
+  combo: ReturnType<typeof import("../combo/combo.mapper").mapCombo> | null;
+  requiresSelection: boolean;
+  selectionIssue: "INCOMPLETE" | "INVALID" | null;
+  selections: Array<{ comboItemId: string; variantId: string; size: string }>;
+  product: null;
+  variant: null;
+  regularPrice: null;
+  unitPrice: number | null;
+  lineSubtotal: number | null;
+};
+
 export type CartDto = {
   id: string | null;
   version: number;
   currency: "BDT";
   moneyUnit: "taka";
-  limits: { distinctItems: null; quantityPerVariant: null };
-  items: CartItemDto[];
+  limits: { distinctItems: number | null; quantityPerVariant: number | null };
+  items: (CartItemDto | CartComboDto)[];
   distinctItemCount: number;
   totalQuantity: number;
   validItemsSubtotal: number;
   allItemsAvailable: boolean;
-  selectionItems?: Array<{ id: string; status: CartItemStatus; lineSubtotal: number | null }>;
+  selectionItems?: Array<{ id: string; type: "VARIANT" | "COMBO"; status: CartItemStatus; lineSubtotal: number | null }>;
 };

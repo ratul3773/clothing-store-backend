@@ -60,6 +60,7 @@ export type AdminVariantDto = PublicVariantDto & {
 };
 
 export type PublicProductDto = {
+  type: "PRODUCT";
   id: string;
   name: string;
   slug: string;
@@ -243,6 +244,7 @@ export const mapPublicProduct = (
   const effectivePrice = activeOffer?.offerPrice ?? product.regularPrice;
 
   return {
+    type: "PRODUCT",
     id: product.id,
     name: product.name,
     slug: product.slug,

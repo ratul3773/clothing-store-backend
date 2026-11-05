@@ -8,6 +8,7 @@ import { activeImageStorage, storageForProvider } from "../upload/storage";
 import { mapCategory, mapCategoryTree } from "./category.mapper";
 import { CategoryLike } from "./category.interface";
 import { CreateCategoryInput, UpdateCategoryInput } from "./category.interface";
+import { invalidatePublicCategoryCache } from "../product/public-category.cache";
 import { buildUniqueSlug } from "../../../utils/slug";
 
 const categorySelect = {
@@ -203,6 +204,7 @@ const createCategory = async (input: CreateCategoryInput) => {
     select: categorySelect,
   });
 
+  invalidatePublicCategoryCache();
   return mapCategory(category);
 };
 
@@ -254,6 +256,7 @@ const updateCategory = async (
     select: categorySelect,
   });
 
+  invalidatePublicCategoryCache();
   return mapCategory(category);
 };
 
@@ -289,6 +292,7 @@ const deleteCategory = async (id: string) => {
       select: categorySelect,
     });
 
+    invalidatePublicCategoryCache();
     return { deleted: false, archived: true, category: mapCategory(category) };
   }
 
@@ -301,6 +305,7 @@ const deleteCategory = async (id: string) => {
     : null;
 
   await prisma.category.delete({ where: { id } });
+  invalidatePublicCategoryCache();
 
   if (imageToDelete) {
     try {
@@ -342,6 +347,7 @@ const uploadCategoryImage = async (
       select: categorySelect,
     });
 
+    invalidatePublicCategoryCache();
     if (category.imageKey && category.imageProvider) {
       try {
         await storageForProvider(
@@ -377,6 +383,7 @@ const removeCategoryImage = async (id: string) => {
     select: categorySelect,
   });
 
+  invalidatePublicCategoryCache();
   try {
     await storageForProvider(
       category.imageProvider as StorageProvider,
