@@ -19,6 +19,7 @@
     "postinstall": "prisma generate",
     "seed": "npx tsx src/utils/seed.ts",
     "admin:seed": "tsx src/scripts/seed-admin.ts",
+    "benchmark": "tsx src/scripts/benchmark.ts",
     "test": "tsx --test \"src/**/*.test.ts\"",
     "test:cart": "tsx --test \"src/app/modules/cart/*.test.ts\" \"src/app/modules/product/catalog.rules.test.ts\"",
     "test:combo": "tsx --test \"src/app/modules/combo/*.test.ts\" \"src/app/modules/cart/cart.combo*.test.ts\" \"src/app/modules/product/catalog.search.test.ts\"",

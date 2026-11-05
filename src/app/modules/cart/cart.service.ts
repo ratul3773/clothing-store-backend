@@ -24,17 +24,23 @@ import type {
   AddCartComboInput,
   CartOwner,
   UpdateCartItemInput,
+  CartDto,
 } from "./cart.interface";
 import { mapCart } from "./cart.mapper";
 import {
   hydrateCart,
-  loadDemandLines,
+  // loadDemandLines,
   loadStockDemand,
   pageCartIds,
   orderedCartIds,
   remainingCapacity,
   type DemandLine,
+  hydrateCartFromSnapshot,
+  buildDemandLines,
 } from "./cart.lines";
+
+import { performance } from "node:perf_hooks";
+import { loadCartSnapshot } from "./cart.snapshot";
 import { variantAvailabilitySelect } from "./cart.select";
 import {
   lockCustomer,
@@ -53,45 +59,60 @@ const mutationSelect = {
 } satisfies Prisma.CartSelect;
 type MutationCart = Prisma.CartGetPayload<{ select: typeof mutationSelect }>;
 
-const getCart = (
+const getCart = async (
   owner: CartOwner | string,
   pagination: TPaginationOptions = {},
 ) => {
   const resolved = normalizeOwner(owner);
   const options = paginationHelpers.calculatePagination(pagination);
-  if (resolved.kind === "none")
-    return Promise.resolve({
-      data: { ...mapCart(null, new Set(), new Date()), selectionItems: [] },
+
+  if (resolved.kind === "none") {
+    return {
+      data: {
+        ...mapCart(null, new Set(), new Date()),
+        selectionItems: [],
+      },
       meta: buildPaginationMeta(0, 1, options.limit),
-    });
+    };
+  }
+
   return prisma.$transaction(
     async (tx) => {
       const header = await tx.cart.findFirst({
         where: ownerWhere(resolved),
-        select: { id: true, version: true },
+        select: {
+          id: true,
+          version: true,
+        },
       });
-      const publicIds = header
-        ? await getPublicCategoryIdsCached()
-        : new Set<string>();
-      const now = new Date();
-      const lines = header
-        ? await loadDemandLines(tx, header.id, publicIds, now)
-        : [];
+
+      // Reuse the existing readCart implementation.
+      const cart = await readCart(tx, header?.id ?? null);
+
+      const total = cart.distinctItemCount;
+
       const page = Math.min(
         options.page,
-        Math.max(1, Math.ceil(lines.length / options.limit)),
+        Math.max(1, Math.ceil(total / options.limit)),
       );
-      const { skip, limit } = paginationHelpers.calculatePagination({
-        page,
-        limit: options.limit,
-      });
-      const ids = header ? await pageCartIds(tx, header.id, skip, limit) : [];
+
+      const { skip, limit } =
+        paginationHelpers.calculatePagination({
+          page,
+          limit: options.limit,
+        });
+
       return {
-        data: await hydrateCart(tx, header, lines, publicIds, now, ids),
-        meta: buildPaginationMeta(lines.length, page, limit),
+        data: {
+          ...cart,
+          items: cart.items.slice(skip, skip + limit),
+        },
+        meta: buildPaginationMeta(total, page, limit),
       };
     },
-    { isolationLevel: "RepeatableRead" },
+    {
+      isolationLevel: "RepeatableRead",
+    },
   );
 };
 
@@ -138,41 +159,81 @@ const ensureCart = async (
   throw new ApiError(409, "Reload your cart before adding items");
 };
 
+const MAX_CART_READ_ATTEMPTS = 3;
+
 const readCart = async (
   db: Prisma.TransactionClient,
   cartId: string | null,
-) => {
-  for (;;) {
-    // Read the version before the graph: never attach a later version to older data.
+): Promise<CartDto> => {
+  const publicIds = cartId
+    ? await getPublicCategoryIdsCached()
+    : new Set<string>();
+
+  for (
+    let attempt = 1;
+    attempt <= MAX_CART_READ_ATTEMPTS;
+    attempt++
+  ) {
     const header = cartId
       ? await db.cart.findUnique({
           where: { id: cartId },
-          select: { id: true, version: true },
+          select: {
+            id: true,
+            version: true,
+          },
         })
       : null;
-    const publicIds = header
-      ? await getPublicCategoryIdsCached()
-      : new Set<string>();
+
     const now = new Date();
-    const lines = header
-      ? await loadDemandLines(db, header.id, publicIds, now)
-      : [];
-    const result = await hydrateCart(
-      db,
+
+    const snapshot = header
+      ? await loadCartSnapshot(db, header.id)
+      : { items: [], combos: [] };
+    const lines = buildDemandLines(
+      snapshot,
+      publicIds,
+      now,
+    );
+    const result = hydrateCartFromSnapshot(
       header,
+      snapshot,
       lines,
       publicIds,
       now,
       orderedCartIds(lines),
     );
     if (!header) return result;
+
     const latest = await db.cart.findUnique({
       where: { id: header.id },
       select: { version: true },
     });
-    // Another writer can commit between summary and display reads. Retry only
-    // the response read, including when a merge/cleanup deletes the guest cart.
-    if (latest?.version === header.version) return result;
+
+    if (latest?.version === header.version) {
+      return result;
+    }
+  }
+
+  throw new ApiError(
+    409,
+    "Cart changed while loading. Please reload your cart.",
+  );
+};
+
+const measure = async <T>(
+  label: string,
+  operation: () => Promise<T>,
+): Promise<T> => {
+  const start = performance.now();
+
+  try {
+    return await operation();
+  } finally {
+    if (process.env.NODE_ENV !== "production") {
+      console.log(
+        `[CART] ${label}: ${(performance.now() - start).toFixed(2)}ms`,
+      );
+    }
   }
 };
 
@@ -185,61 +246,93 @@ const mutate = async (
     owner: CartOwner,
   ) => Promise<string | null>,
 ) => {
-  const header = await retryCartTransaction(async () =>
-    prisma.$transaction(
-      async (tx) => {
-        const owner = normalizeOwner(inputOwner);
-        if (owner.kind === "user") await lockCustomer(tx, owner.userId);
-        // There is no row to lock for a first guest addition. Serialize by token
-        // until its row exists; the unique token constraint remains a backstop.
-        if (owner.kind === "newGuest")
-          await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${owner.tokenHash}, 0))`;
-        if (
-          owner.kind === "guest" &&
-          !(await lockGuest(tx, owner.cartId, owner.tokenHash))
-        )
-          throw new ApiError(
-            409,
-            "Guest cart expired or changed. Reload your cart.",
-          );
-        const where =
-          owner.kind === "newGuest"
-            ? { guestTokenHash: owner.tokenHash, customerId: null }
-            : ownerWhere(owner);
-        let cart = await tx.cart.findFirst({
-          where,
-          select: mutationSelect,
-        });
-        if (owner.kind === "newGuest" && cart?.version === version) {
-          // An already-created token must also coordinate with ordinary guest
-          // writes/merge/cleanup, which lock the row rather than the token.
-          if (!(await lockGuest(tx, cart.id, owner.tokenHash)))
+  const header = await measure("mutation transaction", () =>
+    retryCartTransaction(async () =>
+      prisma.$transaction(
+        async (tx) => {
+          const owner = normalizeOwner(inputOwner);
+
+          if (owner.kind === "user") {
+            await lockCustomer(tx, owner.userId);
+          }
+
+          if (owner.kind === "newGuest") {
+            await tx.$queryRaw<{ locked: string }[]>`
+              SELECT pg_advisory_xact_lock(
+                hashtextextended(${owner.tokenHash}, 0)
+              )::text AS locked
+            `;
+          }
+
+          if (
+            owner.kind === "guest" &&
+            !(await lockGuest(tx, owner.cartId, owner.tokenHash))
+          ) {
             throw new ApiError(
               409,
               "Guest cart expired or changed. Reload your cart.",
             );
-          cart = await tx.cart.findFirst({ where, select: mutationSelect });
-        }
-        if ((cart?.version ?? 0) !== version)
-          throw new ApiError(
-            409,
-            "Cart was modified by another request. Reload your cart and try again.",
-          );
-        const cartId = await action(tx, cart, owner);
-        const header = cartId
-          ? await tx.cart.update({
-              where: { id: cartId },
-              data: { version: { increment: 1 } },
-              select: { id: true, version: true },
-            })
-          : null;
-        return header;
-      },
-      { isolationLevel: "ReadCommitted" },
+          }
+
+          const where =
+            owner.kind === "newGuest"
+              ? {
+                  guestTokenHash: owner.tokenHash,
+                  customerId: null,
+                }
+              : ownerWhere(owner);
+
+          let cart = await tx.cart.findFirst({
+            where,
+            select: mutationSelect,
+          });
+
+          if (owner.kind === "newGuest" && cart?.version === version) {
+            if (!(await lockGuest(tx, cart.id, owner.tokenHash))) {
+              throw new ApiError(
+                409,
+                "Guest cart expired or changed. Reload your cart.",
+              );
+            }
+
+            cart = await tx.cart.findFirst({
+              where,
+              select: mutationSelect,
+            });
+          }
+
+          if ((cart?.version ?? 0) !== version) {
+            throw new ApiError(
+              409,
+              "Cart was modified by another request. Reload your cart and try again.",
+            );
+          }
+
+          const cartId = await action(tx, cart, owner);
+
+          return cartId
+            ? tx.cart.update({
+                where: { id: cartId },
+                data: {
+                  version: { increment: 1 },
+                },
+                select: {
+                  id: true,
+                  version: true,
+                },
+              })
+            : null;
+        },
+        {
+          isolationLevel: "ReadCommitted",
+        },
+      ),
     ),
   );
-  // A failed response read must never replay an already committed write.
-  return readCart(prisma, header?.id ?? null);
+
+  // Keep the existing API response contract.
+  // Never retry the committed mutation if this read fails.
+  return measure("readCart", () => readCart(prisma, header?.id ?? null));
 };
 
 // Retry only failed writes. Owner locks precede all version/line/stock checks.
@@ -299,20 +392,30 @@ const assertStock = async (
 
 const addItem = async (owner: CartOwner | string, input: AddCartItemInput) => {
   assertQuantity(input.quantity);
+  // Resolve before acquiring cart locks.
+  const publicIds = await getPublicCategoryIdsCached();
+
   return mutate(owner, input.version, async (tx, cart, resolved) => {
     const existing = cart?.items.find(
       (item) => item.variantId === input.variantId,
     );
+
     assertLineLimit(cart, existing);
+
     const quantity = (existing?.quantity ?? 0) + input.quantity;
     assertQuantity(quantity);
+
     const variant = await tx.variant.findUnique({
       where: { id: input.variantId },
       select: variantAvailabilitySelect,
     });
-    const publicIds = await getPublicCategoryIdsCached();
-    if (!variant || !isVariantPublic(variant, publicIds, new Date()))
+
+    const now = new Date();
+
+    if (!variant || !isVariantPublic(variant, publicIds, now)) {
       throw new ApiError(404, "Variant is not available");
+    }
+
     await assertStock(
       tx,
       cart,
@@ -320,12 +423,24 @@ const addItem = async (owner: CartOwner | string, input: AddCartItemInput) => {
       quantity,
       existing?.id,
     );
+
     const cartId = await ensureCart(tx, cart, resolved);
+
     await tx.cartItem.upsert({
-      where: { cartId_variantId: { cartId, variantId: variant.id } },
-      create: { cartId, variantId: variant.id, quantity },
+      where: {
+        cartId_variantId: {
+          cartId,
+          variantId: variant.id,
+        },
+      },
+      create: {
+        cartId,
+        variantId: variant.id,
+        quantity,
+      },
       update: { quantity },
     });
+
     return cartId;
   });
 };
@@ -466,15 +581,29 @@ const removeLine = (
   version: number,
 ) =>
   mutate(owner, version, async (tx, cart) => {
-    const exists =
+    if (!cart) {
+      throw new ApiError(404, "Cart not found");
+    }
+
+    const result =
       type === "VARIANT"
-        ? cart?.items.some((item) => item.id === itemId)
-        : cart?.combos.some((item) => item.id === itemId);
-    if (!exists || !cart) throw new ApiError(404, "Cart item not found");
-    if (type === "VARIANT")
-      await tx.cartItem.deleteMany({ where: { id: itemId, cartId: cart.id } });
-    else
-      await tx.cartCombo.deleteMany({ where: { id: itemId, cartId: cart.id } });
+        ? await tx.cartItem.deleteMany({
+            where: {
+              id: itemId,
+              cartId: cart.id,
+            },
+          })
+        : await tx.cartCombo.deleteMany({
+            where: {
+              id: itemId,
+              cartId: cart.id,
+            },
+          });
+
+    if (result.count === 0) {
+      throw new ApiError(404, "Cart item not found");
+    }
+
     return cart.id;
   });
 
@@ -483,6 +612,7 @@ const updateCombo = (
   itemId: string,
   input: UpdateCartItemInput,
 ) => updateLine("COMBO", owner, itemId, input);
+
 const removeCombo = (
   owner: CartOwner | string,
   itemId: string,
@@ -494,6 +624,7 @@ const removeItem = (
   itemId: string,
   version: number,
 ) => removeLine("VARIANT", owner, itemId, version);
+
 const clearCart = (owner: CartOwner | string, version: number) =>
   mutate(owner, version, async (tx, cart) => {
     if (!cart) return null;
