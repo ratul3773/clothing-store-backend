@@ -10,7 +10,7 @@ import { comboItemsError, lockCombo } from "./combo.rules";
 import { comboInclude, comboColorSelect } from "./combo.select";
 import { comboPricing } from "./combo.pricing";
 
-const publicWhere = async (tx: Prisma.TransactionClient): Promise<Prisma.ComboWhereInput> => {
+const publicWhere = async (tx: Prisma.TransactionClient, publicIds?: ReadonlySet<string>): Promise<Prisma.ComboWhereInput> => {
   const now = new Date();
   const unavailable = await tx.$queryRaw<Array<{ comboId: string }>>`
     SELECT DISTINCT ci."comboId" FROM combo_items ci
@@ -26,7 +26,7 @@ const publicWhere = async (tx: Prisma.TransactionClient): Promise<Prisma.ComboWh
     items: {
       some: {},
       every: {
-        color: { product: { status: "ACTIVE", publishedAt: { lte: now }, categoryId: { in: [...await getPublicCategoryIds(tx)] } }, variants: { some: { isActive: true } } },
+        color: { product: { status: "ACTIVE", publishedAt: { lte: now }, categoryId: { in: [...(publicIds ?? await getPublicCategoryIds(tx))] } }, variants: { some: { isActive: true } } },
       },
     },
   };
@@ -60,20 +60,21 @@ const assertDiscount = (items: Parameters<typeof comboPricing>[0], price: number
 
 const list = (query: PaginationQuery, admin = false) => prisma.$transaction(async (tx) => {
   const { page, limit, skip, take } = getPagination(query);
-  const where = admin ? {} : await publicWhere(tx);
+  const publicIds = await getPublicCategoryIds(tx);
+  const where = admin ? {} : await publicWhere(tx, publicIds);
   const total = await tx.combo.count({ where });
   const rows = await tx.combo.findMany({ where, include: comboInclude, orderBy: [{ createdAt: "desc" }, { id: "asc" }], skip, take });
-  const publicIds = await getPublicCategoryIds(tx);
   const now = new Date();
   return { data: rows.map((row) => mapCombo(row, now, publicIds, admin)), meta: buildPaginationMeta(total, page, limit) };
 }, { isolationLevel: "RepeatableRead" });
 
 const detail = (identifier: string, admin = false) => prisma.$transaction(async (tx) => {
+  const publicIds = await getPublicCategoryIds(tx);
   const combo = await tx.combo.findFirst({
-    where: admin ? { id: identifier } : { ...await publicWhere(tx), slug: identifier }, include: comboInclude,
+    where: admin ? { id: identifier } : { ...await publicWhere(tx, publicIds), slug: identifier }, include: comboInclude,
   });
   if (!combo) throw new ApiError(404, "Combo not found");
-  return mapCombo(combo, new Date(), await getPublicCategoryIds(tx), admin);
+  return mapCombo(combo, new Date(), publicIds, admin);
 }, { isolationLevel: "RepeatableRead" });
 
 const create = (input: CreateComboInput) => prisma.$transaction(async (tx) => {

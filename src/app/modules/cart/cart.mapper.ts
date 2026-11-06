@@ -4,51 +4,10 @@ import { CartDto, CartItemDto, CartItemStatus } from "./cart.interface";
 import {
   CartAvailabilityVariant,
   CartWithItems,
-  CartSummaryLine,
 } from "./cart.select";
 import { isVariantPublic } from "../product/catalog.rules";
 import { safeInteger as safeAmount } from "../combo/combo.rules";
 import { CART_LINE_LIMIT } from "./cart.constants";
-
-export const mapCartSummary = (
-  lines: CartSummaryLine[],
-  publicCategoryIds: ReadonlySet<string>,
-  now: Date,
-) => {
-  const selectionItems = lines.map((line) => {
-    const status = getCartItemStatus(
-      line.variant,
-      line.quantity,
-      publicCategoryIds,
-      now,
-    );
-    const product = line.variant.product;
-    const unitPrice =
-      resolveActiveOffer(product.offers, product.regularPrice, now)
-        ?.offerPrice ?? product.regularPrice;
-    return {
-      id: line.id,
-      status,
-      lineSubtotal:
-        status === "UNAVAILABLE" ? null : safeAmount(unitPrice * line.quantity),
-    };
-  });
-  return {
-    selectionItems,
-    distinctItemCount: lines.length,
-    totalQuantity: lines.reduce((sum, line) => sum + line.quantity, 0),
-    validItemsSubtotal: safeAmount(
-      selectionItems.reduce(
-        (sum, item) =>
-          sum + (item.status === "AVAILABLE" ? (item.lineSubtotal ?? 0) : 0),
-        0,
-      ),
-    ),
-    allItemsAvailable:
-      lines.length > 0 &&
-      selectionItems.every((item) => item.status === "AVAILABLE"),
-  };
-};
 
 export const getCartItemStatus = (
   variant: CartAvailabilityVariant,

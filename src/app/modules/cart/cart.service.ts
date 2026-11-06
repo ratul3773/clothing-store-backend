@@ -28,10 +28,7 @@ import type {
 } from "./cart.interface";
 import { mapCart } from "./cart.mapper";
 import {
-  hydrateCart,
-  // loadDemandLines,
   loadStockDemand,
-  pageCartIds,
   orderedCartIds,
   remainingCapacity,
   type DemandLine,
@@ -76,8 +73,12 @@ const getCart = async (
     };
   }
 
+  const publicIds = await getPublicCategoryIdsCached();
+
   return prisma.$transaction(
     async (tx) => {
+      // RepeatableRead keeps the header and its lines on one snapshot, so the
+      // version re-check that readCart needs outside a transaction is skipped.
       const header = await tx.cart.findFirst({
         where: ownerWhere(resolved),
         select: {
@@ -86,8 +87,7 @@ const getCart = async (
         },
       });
 
-      // Reuse the existing readCart implementation.
-      const cart = await readCart(tx, header?.id ?? null);
+      const cart = await readCartSnapshot(tx, header, publicIds);
 
       const total = cart.distinctItemCount;
 
@@ -161,6 +161,28 @@ const ensureCart = async (
 
 const MAX_CART_READ_ATTEMPTS = 3;
 
+const readCartSnapshot = async (
+  db: Prisma.TransactionClient,
+  header: { id: string; version: number } | null,
+  publicIds: ReadonlySet<string>,
+): Promise<CartDto> => {
+  const now = new Date();
+  const snapshot = header
+    ? await loadCartSnapshot(db, header.id)
+    : { items: [], combos: [] };
+  const lines = buildDemandLines(snapshot, publicIds, now);
+  return hydrateCartFromSnapshot(
+    header,
+    snapshot,
+    lines,
+    publicIds,
+    now,
+    orderedCartIds(lines),
+  );
+};
+
+// Post-commit reads run outside a transaction, so re-check the version to
+// return a cart that belongs to one snapshot.
 const readCart = async (
   db: Prisma.TransactionClient,
   cartId: string | null,
@@ -184,24 +206,7 @@ const readCart = async (
         })
       : null;
 
-    const now = new Date();
-
-    const snapshot = header
-      ? await loadCartSnapshot(db, header.id)
-      : { items: [], combos: [] };
-    const lines = buildDemandLines(
-      snapshot,
-      publicIds,
-      now,
-    );
-    const result = hydrateCartFromSnapshot(
-      header,
-      snapshot,
-      lines,
-      publicIds,
-      now,
-      orderedCartIds(lines),
-    );
+    const result = await readCartSnapshot(db, header, publicIds);
     if (!header) return result;
 
     const latest = await db.cart.findUnique({
@@ -450,6 +455,8 @@ const addCombo = async (
   input: AddCartComboInput,
 ) => {
   assertQuantity(input.quantity);
+  // Resolve before acquiring cart locks; never fetch categories inside the write transaction.
+  const publicIds = await getPublicCategoryIdsCached();
   return mutate(owner, input.version, async (tx, cart, resolved) => {
     const selectionKey = comboSelectionKey(input.selections);
     const existing = cart?.combos.find(
@@ -464,7 +471,6 @@ const addCombo = async (
       where: { id: input.comboId },
       select: comboAvailabilitySelect,
     });
-    const publicIds = await getPublicCategoryIdsCached();
     if (!isComboPublic(combo, publicIds, new Date()))
       throw new ApiError(404, "Combo is not available");
     const components = resolveComboSelections(combo, input.selections);
@@ -512,6 +518,8 @@ const updateLine = async (
   input: UpdateCartItemInput,
 ) => {
   assertQuantity(input.quantity);
+  // Resolve before acquiring cart locks; never fetch categories inside the write transaction.
+  const publicIds = await getPublicCategoryIdsCached();
   return mutate(owner, input.version, async (tx, cart) => {
     const item =
       type === "VARIANT"
@@ -519,7 +527,6 @@ const updateLine = async (
         : cart?.combos.find((item) => item.id === itemId);
     if (!item || !cart) throw new ApiError(404, "Cart item not found");
     if (input.quantity > item.quantity) {
-      const publicIds = await getPublicCategoryIdsCached();
       const now = new Date();
       let components: DemandLine["components"];
       if (type === "VARIANT") {
