@@ -442,119 +442,106 @@ export const orderedCartIds = (lines: readonly DemandLine[]): CartPageId[] =>
     (a.type < b.type ? -1 : a.type > b.type ? 1 : 0) ||
     (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
   ).map(({ id, type }) => ({ id, type }));
-export const pageCartIds = (
-  tx: Prisma.TransactionClient,
-  cartId: string,
-  skip: number,
-  limit: number,
-) =>
-  tx.$queryRaw<CartPageId[]>`
-    SELECT id, type FROM (
-      SELECT id, 'VARIANT' AS type, "createdAt" FROM cart_items WHERE "cartId" = ${cartId}
-      UNION ALL
-      SELECT id, 'COMBO' AS type, "createdAt" FROM cart_combos WHERE "cartId" = ${cartId}
-    ) AS lines ORDER BY "createdAt" ASC, type ASC, id ASC OFFSET ${skip} LIMIT ${limit}
-  `;
 
-export const hydrateCart = async (
-  tx: Prisma.TransactionClient,
-  header: { id: string; version: number } | null,
-  lines: DemandLine[],
-  publicIds: ReadonlySet<string>,
-  now: Date,
-  pageIds?: CartPageId[],
-): Promise<CartDto> => {
-  const ids = pageIds ?? lines.map(({ id, type }) => ({ id, type }));
-  const variants = ids
-    .filter((item) => item.type === "VARIANT")
-    .map((item) => item.id);
-  const combos = ids
-    .filter((item) => item.type === "COMBO")
-    .map((item) => item.id);
-  const [items, comboItems] = await Promise.all([
-    header && variants.length ? tx.cartItem.findMany({
-      ...cartInclude.items,
-      where: { cartId: header.id, id: { in: variants } },
-    }) : [],
-    header && combos.length ? tx.cartCombo.findMany({
-      where: { cartId: header.id, id: { in: combos } },
-      include: {
-        combo: { include: comboInclude },
-        selections: { include: { variant: { select: { size: true } } } },
-      },
-    }) : [],
-  ]);
-  const cart = header ? { ...header, items, combos: comboItems } : null;
-  const { states, summary } = summarizeLines(lines);
-  const mapped = mapCart(
-    cart
-      ? {
-          ...cart,
-          items: cart.items.filter(
-            (item) => states.get(item.id)?.status !== "UNAVAILABLE",
-          ),
-        }
-      : null,
-    publicIds,
-    now,
-  );
-  const mappedItems = new Map(mapped.items.map((item) => [item.id, item]));
-  const lineMap = new Map(lines.map((line) => [line.id, line]));
-  for (const item of cart?.items ?? [])
-    if (!mappedItems.has(item.id))
-      mappedItems.set(item.id, {
-        id: item.id,
-        type: "VARIANT",
-        variantId: item.variantId,
-        quantity: item.quantity,
-        ...states.get(item.id)!,
-        product: null,
-        variant: null,
-        regularPrice: null,
-        unitPrice: null,
-      });
-  for (const item of cart?.combos ?? []) {
-    const state = states.get(item.id)!;
-    const visible = isComboPublic(item.combo, publicIds, now);
-    const resolved = resolveComboSelections(item.combo, item.selections);
-    mappedItems.set(item.id, {
-      id: item.id,
-      type: "COMBO",
-      comboId: visible ? item.comboId : null,
-      variantId: null,
-      quantity: item.quantity,
-      ...state,
-      combo: visible ? mapCombo(item.combo, now, publicIds) : null,
-      requiresSelection:
-        visible &&
-        (!resolved ||
-          lineMap.get(item.id)?.selectionIssue ===
-            "INVALID"),
-      selectionIssue: visible
-        ? (lineMap.get(item.id)?.selectionIssue ?? null)
-        : null,
-      selections: visible
-        ? item.selections.map((selection) => ({
-            comboItemId: selection.comboItemId,
-            variantId: selection.variantId,
-            size: selection.variant.size,
-          }))
-        : [],
-      product: null,
-      variant: null,
-      regularPrice: null,
-      unitPrice: state.status === "UNAVAILABLE" ? null : item.combo.price,
-    });
-  }
-  return {
-    ...mapped,
-    ...summary,
-    items: ids.flatMap(({ id }) => {
-      const item = mappedItems.get(id);
-      return item ? [{ ...item, ...states.get(id)! }] : [];
-    }),
-  };
-};
+// export const hydrateCart = async (
+//   tx: Prisma.TransactionClient,
+//   header: { id: string; version: number } | null,
+//   lines: DemandLine[],
+//   publicIds: ReadonlySet<string>,
+//   now: Date,
+//   pageIds?: CartPageId[],
+// ): Promise<CartDto> => {
+//   const ids = pageIds ?? lines.map(({ id, type }) => ({ id, type }));
+//   const variants = ids
+//     .filter((item) => item.type === "VARIANT")
+//     .map((item) => item.id);
+//   const combos = ids
+//     .filter((item) => item.type === "COMBO")
+//     .map((item) => item.id);
+//   const [items, comboItems] = await Promise.all([
+//     header && variants.length ? tx.cartItem.findMany({
+//       ...cartInclude.items,
+//       where: { cartId: header.id, id: { in: variants } },
+//     }) : [],
+//     header && combos.length ? tx.cartCombo.findMany({
+//       where: { cartId: header.id, id: { in: combos } },
+//       include: {
+//         combo: { include: comboInclude },
+//         selections: { include: { variant: { select: { size: true } } } },
+//       },
+//     }) : [],
+//   ]);
+//   const cart = header ? { ...header, items, combos: comboItems } : null;
+//   const { states, summary } = summarizeLines(lines);
+//   const mapped = mapCart(
+//     cart
+//       ? {
+//           ...cart,
+//           items: cart.items.filter(
+//             (item) => states.get(item.id)?.status !== "UNAVAILABLE",
+//           ),
+//         }
+//       : null,
+//     publicIds,
+//     now,
+//   );
+//   const mappedItems = new Map(mapped.items.map((item) => [item.id, item]));
+//   const lineMap = new Map(lines.map((line) => [line.id, line]));
+//   for (const item of cart?.items ?? [])
+//     if (!mappedItems.has(item.id))
+//       mappedItems.set(item.id, {
+//         id: item.id,
+//         type: "VARIANT",
+//         variantId: item.variantId,
+//         quantity: item.quantity,
+//         ...states.get(item.id)!,
+//         product: null,
+//         variant: null,
+//         regularPrice: null,
+//         unitPrice: null,
+//       });
+//   for (const item of cart?.combos ?? []) {
+//     const state = states.get(item.id)!;
+//     const visible = isComboPublic(item.combo, publicIds, now);
+//     const resolved = resolveComboSelections(item.combo, item.selections);
+//     mappedItems.set(item.id, {
+//       id: item.id,
+//       type: "COMBO",
+//       comboId: visible ? item.comboId : null,
+//       variantId: null,
+//       quantity: item.quantity,
+//       ...state,
+//       combo: visible ? mapCombo(item.combo, now, publicIds) : null,
+//       requiresSelection:
+//         visible &&
+//         (!resolved ||
+//           lineMap.get(item.id)?.selectionIssue ===
+//             "INVALID"),
+//       selectionIssue: visible
+//         ? (lineMap.get(item.id)?.selectionIssue ?? null)
+//         : null,
+//       selections: visible
+//         ? item.selections.map((selection) => ({
+//             comboItemId: selection.comboItemId,
+//             variantId: selection.variantId,
+//             size: selection.variant.size,
+//           }))
+//         : [],
+//       product: null,
+//       variant: null,
+//       regularPrice: null,
+//       unitPrice: state.status === "UNAVAILABLE" ? null : item.combo.price,
+//     });
+//   }
+//   return {
+//     ...mapped,
+//     ...summary,
+//     items: ids.flatMap(({ id }) => {
+//       const item = mappedItems.get(id);
+//       return item ? [{ ...item, ...states.get(id)! }] : [];
+//     }),
+//   };
+// };
 
 export const hydrateCartFromSnapshot = (
   header: { id: string; version: number } | null,

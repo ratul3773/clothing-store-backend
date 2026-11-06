@@ -3,7 +3,6 @@ import { Prisma } from "../../../generated/prisma/client";
 import ApiError from "../../../errors/ApiError";
 import { GUEST_CART_TTL_MS } from "./cart.constants";
 import { CartOwner } from "./cart.interface";
-import { cartInclude } from "./cart.select";
 
 export const guestCutoff = (now = new Date()) =>
   new Date(now.getTime() - GUEST_CART_TTL_MS);
@@ -37,9 +36,6 @@ export const ownerWhere = (
     };
   return { id: { in: [] } };
 };
-
-export const readCart = (tx: Prisma.TransactionClient, owner: CartOwner) =>
-  tx.cart.findFirst({ where: ownerWhere(owner), include: cartInclude });
 
 export const lockCustomer = async (
   tx: Prisma.TransactionClient,
