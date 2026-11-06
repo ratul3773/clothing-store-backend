@@ -40,21 +40,47 @@ export type CartSnapshot = {
 
 // Prisma stores DateTime as UTC in timestamp-without-time-zone columns, so JSON
 // values carry no offset and must be read as UTC, not as the server's locale.
-const utcDate = (text: string) =>
-  new Date(/[zZ]|[+-]\d{2}:?\d{2}$/.test(text) ? text : `${text}Z`);
+const DATE_FIELDS = new Set([
+  "createdAt",
+  "updatedAt",
+  "publishedAt",
+  "startsAt",
+  "endsAt",
+]);
 
 const reviveDates = (value: unknown): unknown => {
   if (value instanceof Date) return value;
-  if (Array.isArray(value)) return value.map(reviveDates);
-  if (value && typeof value === "object")
+
+  if (Array.isArray(value)) {
+    return value.map(reviveDates);
+  }
+
+  if (value !== null && typeof value === "object") {
     return Object.fromEntries(
-      Object.entries(value).map(([key, entry]) => [
-        key,
-        typeof entry === "string" && key.endsWith("At")
-          ? utcDate(entry)
-          : reviveDates(entry),
-      ]),
+      Object.entries(value).map(([key, entry]) => {
+        if (
+          DATE_FIELDS.has(key) &&
+          typeof entry === "string"
+        ) {
+          const normalized =
+            /(?:Z|[+-]\d{2}(?::?\d{2})?)$/i.test(entry)
+              ? entry
+              : `${entry}Z`;
+
+          const date = new Date(normalized);
+
+          if (Number.isNaN(date.getTime())) {
+            throw new Error(`Invalid date in cart snapshot: ${key}`);
+          }
+
+          return [key, date];
+        }
+
+        return [key, reviveDates(entry)];
+      }),
     );
+  }
+
   return value;
 };
 
