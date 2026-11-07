@@ -14,7 +14,6 @@ router.use((_req, res, next) => {
 
 // Bound anonymous session/hash lookups before reaching authentication/storage.
 router.use(
-  requireTrustedOrigin,
   rateLimit({
     windowMs: 60_000,
     limit: 180,

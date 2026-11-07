@@ -3,13 +3,12 @@ import { CategoryController } from "./category.controller";
 import { CategoryValidation } from "./category.validation";
 import validateRequest from "../../middlewares/validateRequest";
 import { requireAdmin } from "../../middlewares/auth";
-import { requireTrustedOrigin } from "../../middlewares/originGuard";
 import { adminLimiter } from "../../middlewares/security";
 import { singleImageUpload } from "../upload/upload.middleware";
 
 const router = Router();
 
-router.use(requireTrustedOrigin, adminLimiter, ...requireAdmin);
+router.use(adminLimiter, ...requireAdmin);
 
 router.get("/", CategoryController.listAdminCategories);
 router.post(
