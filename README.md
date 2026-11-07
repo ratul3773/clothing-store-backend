@@ -7,7 +7,8 @@ to add more categories later.
 ## Project status
 
 **Current stage:** Authentication plus admin catalogue, variant inventory,
-product offers, image uploads, public product/category APIs, and database-backed guest/customer carts.
+product offers, image uploads, public product/category APIs, database-backed guest/customer carts,
+and COD orders with manual admin creation and stock/history tracking.
 
 ## Technology stack
 
@@ -116,6 +117,67 @@ npm run build
 Unit tests do not touch the database. To run the catalogue database flow test
 against `DATABASE_URL`, set `RUN_DB_TESTS=true`; it creates and removes its own
 test records.
+
+## COD orders
+
+### COD order setup and API
+
+Generate the client with `npx prisma generate --config prisma7.config.ts`. Apply the
+reviewed `prisma/migrations/20261107000000_orders/migration.sql` to the existing
+catalog/cart database before starting this version. The migration is transactional
+and rejects existing invalid stock balances. It has not been applied to the application database.
+The repository ignores older migrations; restore/baseline that history before using
+`prisma migrate deploy` on a new environment. This order migration alone does not bootstrap the database.
+
+All paths below start with `/api/v1`. Customer routes require a verified customer
+session; admin routes require a verified admin session. Guest checkout uses the existing
+`cart_token` cookie. Send the configured trusted `Origin` on mutations.
+
+- `POST /orders/preview`: `{ lines: [{ id, type: "VARIANT" | "COMBO" }], version,
+  destination: { address } | { addressId }, note? }`.
+- `POST /orders`: the same body plus `expected: { subtotal, discount, deliveryFee, total }`
+  copied from preview. Send a fresh `Idempotency-Key` header (16–128 URL-safe characters)
+  for each intended order; reuse the same key/body to retry a lost response.
+- `GET /orders` and `GET /orders/:id`: the signed-in customer's orders and receipt/history.
+  `POST /orders/:id/cancel` accepts `{ version, reason? }` while pending only.
+- Guests receive `guestToken` with the creation receipt. Use `Authorization: Bearer <guestToken>`
+  for `GET /orders/:id/guest` and `POST /orders/:id/guest/cancel`; cancellation takes
+  `{ version, reason? }`. Tokens must stay out of URLs and client logs. Save the returned token;
+  idempotent recovery requires the original guest cart cookie to remain valid.
+- `POST /admin/orders/preview` and `POST /admin/orders` use explicit lines:
+  `{ type: "VARIANT", variantId, quantity }` or
+  `{ type: "COMBO", comboId, quantity, selections: [{ comboItemId, variantId }] }`.
+  Include the same destination, optional `customerId`, `note`, `discount`, `deliveryOverride`,
+  and `adjustmentReason`. Source defaults to `ADMIN_MANUAL`; alternatives are `PHONE`,
+  `WHATSAPP`, `FACEBOOK`, and `INSTAGRAM`. Status defaults to `CONFIRMED`; pending is also allowed.
+  Creation requires expected totals and an idempotency key. Adjustments require a reason.
+- `GET /admin/orders` and `GET /admin/orders/:id`: summary list and full audit detail.
+  Lists support `page`, `limit` (maximum 100), `status`, `source`, `q`, and ISO `from`/`to`.
+- `PATCH /admin/orders/:id/status`: `{ version, status, reason? }`. Cancellation and
+  delivery failure require a reason. Allowed paths are pending → confirmed → shipped → delivered,
+  pending → cancelled, and shipped → delivery failed. Cancellation after confirmation is rejected.
+- `POST /admin/orders/:id/return-receipt`: `{ version, reason,
+  components: [{ id, sellable, damaged }] }`. Every component must be accounted for exactly once
+  after failed delivery. Only sellable quantities return to available stock.
+
+Address fields: `recipientName`, Bangladesh `recipientPhone`, `district`, `area`,
+`addressLine`, optional `postalCode`, and `zone` (`INSIDE_DHAKA` or `OUTSIDE_DHAKA`).
+Saved addresses require an explicitly owned/linked active customer. Manual unlinked orders
+are admin-managed; matching a phone or email does not grant account access.
+
+Prices use integer taka. Delivery defaults to 70/130 taka, free at subtotal ≥ 2000,
+configured through `ORDER_DELIVERY_INSIDE`, `ORDER_DELIVERY_OUTSIDE`, and
+`ORDER_FREE_DELIVERY_ABOVE`. Manual discounts apply after calculating the free delivery threshold.
+Only COD is accepted; delivery records collection of the full total. Placement reserves stock,
+shipment deducts stock, and pending cancellation releases it. Pending orders expire after
+24 hours; cleanup runs at startup and every minute while the backend is running.
+Customer `ordersCount`/first/last timestamps count placements; `lifetimeValue` counts delivered totals.
+Keep `BETTER_AUTH_SECRET` stable for guest token recovery on idempotent retries.
+
+Run `npm run test:order`. Set `RUN_ORDER_DB_TESTS=true` to run real PostgreSQL tests;
+optionally provide `ORDER_TEST_DATABASE_URL`. They create and remove only a random
+`order_test_*` schema and test the actual order migration. No application records are used.
+The frontend checkout and manual-order demo are not wired to these endpoints yet.
 
 ## Available scripts
 

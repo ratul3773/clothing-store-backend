@@ -22,6 +22,7 @@ model User {
   productsCreated      Product[]      @relation("ProductCreatedBy")
   productsUpdated      Product[]      @relation("ProductUpdatedBy")
   productOffersCreated ProductOffer[] @relation("ProductOfferCreatedBy")
+  ordersCreated        Order[]        @relation("OrderCreatedBy")
 
   @@unique([email])
   @@unique([phone])

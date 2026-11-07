@@ -77,7 +77,18 @@ if (!Number.isInteger(maxImagesPerProduct) || maxImagesPerProduct < 1) {
   throw new Error("MAX_IMAGES_PER_PRODUCT must be a positive integer");
 }
 
+const orderConfigInteger = (name: string, fallback: number) => {
+  const value = Number(process.env[name] ?? fallback);
+  if (!Number.isInteger(value) || value < 0 || value > 2_147_483_647) throw new Error(`${name} must be a nonnegative integer`);
+  return value;
+};
+
 const config = {
+  orders: { delivery: {
+    inside: orderConfigInteger("ORDER_DELIVERY_INSIDE", 70),
+    outside: orderConfigInteger("ORDER_DELIVERY_OUTSIDE", 130),
+    freeAbove: orderConfigInteger("ORDER_FREE_DELIVERY_ABOVE", 2000),
+  } },
   env,
   port,
   database_url: process.env.DATABASE_URL,
