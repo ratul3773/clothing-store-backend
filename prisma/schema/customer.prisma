@@ -15,6 +15,7 @@ model Customer {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
   stockNotifyRequests StockNotifyRequest[]
+  addresses Address[]
 
   user User @relation(fields: [userId], references: [id], onDelete: Restrict)
   cart Cart?

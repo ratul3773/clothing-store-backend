@@ -1,0 +1,27 @@
+enum DeliveryZone {
+  INSIDE_DHAKA
+  OUTSIDE_DHAKA
+}
+
+model Address {
+  id            String       @id @default(uuid())
+  customerId    String
+  label         String? // Home, Office
+  recipientName String
+  recipientPhone String
+  division      String
+  district      String
+  area          String // upazila / thana / area
+  addressLine   String
+  postalCode    String?
+  zone          DeliveryZone
+  isDefault     Boolean      @default(false)
+  deletedAt     DateTime?
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([customerId])
+  @@map("addresses")
+}
