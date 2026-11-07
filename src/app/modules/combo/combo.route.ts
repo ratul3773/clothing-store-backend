@@ -11,7 +11,7 @@ ComboRoutes.get("/", validateRequest(validation.list), controller.list);
 ComboRoutes.get("/:slug", validateRequest(validation.slug), controller.detail);
 
 export const AdminComboRoutes = Router();
-AdminComboRoutes.use(requireTrustedOrigin, adminLimiter, ...requireAdmin);
+AdminComboRoutes.use(adminLimiter, ...requireAdmin);
 AdminComboRoutes.get("/", validateRequest(validation.list), controller.adminList);
 AdminComboRoutes.get("/:id", validateRequest(validation.id), controller.adminDetail);
 AdminComboRoutes.post("/", validateRequest(validation.create), controller.create);

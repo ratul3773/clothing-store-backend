@@ -9,7 +9,6 @@ model Address {
   label         String? // Home, Office
   recipientName String
   recipientPhone String
-  division      String
   district      String
   area          String // upazila / thana / area
   addressLine   String

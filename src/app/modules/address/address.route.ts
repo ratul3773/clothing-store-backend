@@ -2,19 +2,18 @@ import { Router } from "express";
 import { AddressController } from "./address.controller";
 import { AddressValidation } from "./address.validation";
 import validateRequest from "../../middlewares/validateRequest";
+import { requireAuth, requireRole } from "../../middlewares/auth";
+import { Role } from "../../../generated/prisma/enums";
+import { requireTrustedOrigin } from "../../middlewares/originGuard";
 
 const router = Router();
 
+router.use(requireAuth , requireRole(Role.customer));
 router.get("/", AddressController.getAddresses);
 router.post(
   "/",
   validateRequest(AddressValidation.createAddressSchema),
   AddressController.addAddress,
-);
-router.get(
-  "/:addressId",
-  validateRequest(AddressValidation.getAddressByIdSchema),
-  AddressController.getAddresses,
 );
 router.patch(
   "/:addressId",
@@ -23,7 +22,7 @@ router.patch(
 );
 router.delete(
   "/:addressId",
-  validateRequest(AddressValidation.deleteAddressSchema),
+  validateRequest(AddressValidation.addressIdSchema),
   AddressController.deleteAddress,
 );
 

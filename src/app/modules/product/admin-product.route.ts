@@ -9,7 +9,7 @@ import { ProductValidation } from "./product.validation";
 
 const router = Router();
 
-router.use(requireTrustedOrigin, adminLimiter, ...requireAdmin);
+router.use(adminLimiter, ...requireAdmin);
 
 router.get(
   "/",

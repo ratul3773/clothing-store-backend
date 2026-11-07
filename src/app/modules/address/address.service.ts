@@ -1,8 +1,12 @@
+import { Prisma } from "../../../generated/prisma/client";
 import ApiError from "../../../errors/ApiError";
 import { prisma } from "../../../lib/prisma";
-import { CreateAddressPayload } from "./address.interface";
+import {
+  CreateAddressPayload,
+  UpdateAddressPayload,
+} from "./address.interface";
 
-const resolveUser = async (userId: string) => {
+const resolveCustomer = async (userId: string) => {
   const user = await prisma.user.findUnique({
     where: {
       id: userId,
@@ -28,66 +32,78 @@ const resolveUser = async (userId: string) => {
   return customer;
 };
 
+const clearOtherDefaults = (
+  tx: Prisma.TransactionClient,
+  customerId: string,
+  keepId?: string,
+) =>
+  tx.address.updateMany({
+    where: {
+      customerId,
+      isDefault: true,
+      ...(keepId ? { id: { not: keepId } } : {}),
+    },
+    data: {
+      isDefault: false,
+    },
+  });
+
+const promoteDefault = async (
+  tx: Prisma.TransactionClient,
+  customerId: string,
+  excludeId: string,
+) => {
+  const next = await tx.address.findFirst({
+    where: {
+      customerId,
+      deletedAt: null,
+      id: { not: excludeId },
+    },
+    orderBy: { createdAt: "desc" },
+    select: { id: true },
+  });
+  if (next) {
+    await tx.address.update({
+      where: { id: next.id },
+      data: { isDefault: true },
+    });
+  }
+};
+
 const addAddress = async (
   userId: string,
   addressData: CreateAddressPayload,
 ) => {
-  const {
-    label,
-    recipientName,
-    recipientPhone,
-    division,
-    district,
-    area,
-    addressLine,
-    postalCode,
-    zone,
-    isDefault,
-  } = addressData;
+  const customer = await resolveCustomer(userId);
 
-  const customer = await resolveUser(userId);
-  if (isDefault) {
-    await prisma.address.updateMany({
-      where: {
-        customerId: customer.id,
-        isDefault: true,
-      },
+  return prisma.$transaction(async (tx) => {
+    if (addressData.isDefault) {
+      await clearOtherDefaults(tx, customer.id);
+    }
+    return tx.address.create({
       data: {
-        isDefault: false,
+        customerId: customer.id,
+        ...addressData,
       },
     });
-  }
-  const newAddress = await prisma.address.create({
-    data: {
-      customerId: customer.id,
-      label,
-      recipientName,
-      recipientPhone,
-      division,
-      district,
-      area,
-      addressLine,
-      postalCode,
-      zone,
-      isDefault,
-    },
   });
-  return newAddress;
 };
 
 const getAddresses = async (userId: string) => {
-  const customer = await resolveUser(userId);
+  const customer = await resolveCustomer(userId);
   const addresses = await prisma.address.findMany({
     where: {
       customerId: customer.id,
+      deletedAt: null,
     },
+    orderBy: [{ isDefault: "desc" }, { createdAt: "desc" }],
   });
   return addresses;
 };
 
 const getAddressById = async (userId: string, addressId: string) => {
-  const customer = await resolveUser(userId);
-  const address = await prisma.address.findUnique({
+  const customer = await resolveCustomer(userId);
+  const address = await prisma.address.findFirst({
     where: {
       id: addressId,
       customerId: customer.id,
@@ -103,10 +119,10 @@ const getAddressById = async (userId: string, addressId: string) => {
 const updateAddress = async (
   userId: string,
   addressId: string,
-  addressData: Partial<CreateAddressPayload>,
+  addressData: UpdateAddressPayload,
 ) => {
-  const customer = await resolveUser(userId);
-  const address = await prisma.address.findUnique({
+  const customer = await resolveCustomer(userId);
+  const address = await prisma.address.findFirst({
     where: {
       id: addressId,
       customerId: customer.id,
@@ -116,18 +132,30 @@ const updateAddress = async (
   if (!address) {
     throw new ApiError(404, "Address not found");
   }
-  const updatedAddress = await prisma.address.update({
-    where: {
-      id: addressId,
-    },
-    data: addressData,
+
+  return prisma.$transaction(async (tx) => {
+    if (addressData.isDefault === true) {
+      await clearOtherDefaults(tx, customer.id, addressId);
+    }
+
+    const updatedAddress = await tx.address.update({
+      where: {
+        id: addressId,
+      },
+      data: addressData,
+    });
+
+    if (addressData.isDefault === false && address.isDefault) {
+      await promoteDefault(tx, customer.id, addressId);
+    }
+
+    return updatedAddress;
   });
-  return updatedAddress;
 };
 
 const deleteAddress = async (userId: string, addressId: string) => {
-  const customer = await resolveUser(userId);
-  const address = await prisma.address.findUnique({
+  const customer = await resolveCustomer(userId);
+  const address = await prisma.address.findFirst({
     where: {
       id: addressId,
       customerId: customer.id,
@@ -137,15 +165,24 @@ const deleteAddress = async (userId: string, addressId: string) => {
   if (!address) {
     throw new ApiError(404, "Address not found");
   }
-  const deletedAddress = await prisma.address.update({
-    where: {
-      id: addressId,
-    },
-    data: {
-      deletedAt: new Date(),
-    },
+
+  return prisma.$transaction(async (tx) => {
+    const deletedAddress = await tx.address.update({
+      where: {
+        id: addressId,
+      },
+      data: {
+        deletedAt: new Date(),
+        isDefault: false,
+      },
+    });
+
+    if (address.isDefault) {
+      await promoteDefault(tx, customer.id, addressId);
+    }
+
+    return deletedAddress;
   });
-  return deletedAddress;
 };
 
 export const addressService = {

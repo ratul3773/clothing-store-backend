@@ -1,50 +1,49 @@
 import { z } from "zod";
 
+const addressFields = {
+  recipientName: z.string().trim().min(1).max(100),
+  recipientPhone: z.string().trim().min(1).max(20),
+  label: z.string().trim().max(100).nullable(),
+  area: z.string().trim().min(1).max(100),
+  addressLine: z.string().trim().min(1).max(500),
+  isDefault: z.boolean(),
+  zone: z.enum(["INSIDE_DHAKA", "OUTSIDE_DHAKA"]),
+  district: z.string().trim().min(1).max(100),
+  postalCode: z.string().trim().max(20).nullable(),
+};
+
+const addressIdParams = z.object({
+  addressId: z.string().uuid(),
+});
+
 const createAddressSchema = z.object({
-  body: z.object({
-    recipientName: z.string().trim().min(1).max(100),
-    recipientPhone: z.string().trim().min(1).max(20),
-    label: z.string().trim().max(100).optional(),
-    area: z.string().trim().min(1).max(100),
-    addressLine: z.string().trim().min(1).max(500),
-    isDefault: z.boolean().optional(),
-    zone: z.enum(["INSIDE_DHAKA", "OUTSIDE_DHAKA"]),
-    division: z.string().trim().min(1).max(100),
-    district: z.string().trim().min(1).max(100),
-    postalCode: z.string().trim().min(1).max(20),
-  })
+  body: z
+    .object({
+      ...addressFields,
+      label: addressFields.label.optional(),
+      postalCode: addressFields.postalCode.optional(),
+      isDefault: addressFields.isDefault.optional(),
+    })
+    .strict(),
 });
 
 const updateAddressSchema = z.object({
-  body: z.object({
-    recipientName: z.string().trim().min(1).max(100).optional(),
-    recipientPhone: z.string().trim().min(1).max(20).optional(),
-    label: z.string().trim().max(100).optional(),
-    area: z.string().trim().min(1).max(100).optional(),
-    addressLine: z.string().trim().min(1).max(500).optional(),
-    isDefault: z.boolean().optional(),
-    zone: z.enum(["INSIDE_DHAKA", "OUTSIDE_DHAKA"]).optional(),
-    division: z.string().trim().min(1).max(100).optional(),
-    district: z.string().trim().min(1).max(100).optional(),
-    postalCode: z.string().trim().min(1).max(20).optional(),
-  })
+  params: addressIdParams,
+  body: z
+    .object(addressFields)
+    .partial()
+    .strict()
+    .refine((data) => Object.keys(data).length > 0, {
+      message: "Provide at least one field to update",
+    }),
 });
 
-const getAddressByIdSchema = z.object({
-  params: z.object({
-    addressId: z.string().uuid(),
-  })
-});
-
-const deleteAddressSchema = z.object({
-  params: z.object({
-    addressId: z.string().uuid(),
-  })
+const addressIdSchema = z.object({
+  params: addressIdParams,
 });
 
 export const AddressValidation = {
   createAddressSchema,
   updateAddressSchema,
-  getAddressByIdSchema,
-  deleteAddressSchema
+  addressIdSchema,
 };

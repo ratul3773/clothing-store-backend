@@ -6,7 +6,6 @@ export interface Address {
   label: string | null;
   recipientName: string;
   recipientPhone: string;
-  division: string;
   district: string;
   area: string;
   addressLine: string;
@@ -19,14 +18,15 @@ export interface Address {
 }
 
 export interface CreateAddressPayload {
-  label: string | null;
+  label?: string | null;
   recipientName: string;
   recipientPhone: string;
-  division: string;
   district: string;
   area: string;
   addressLine: string;
-  postalCode: string | null;
+  postalCode?: string | null;
   zone: DeliveryZone;
-  isDefault: boolean;
+  isDefault?: boolean;
 }
+
+export type UpdateAddressPayload = Partial<CreateAddressPayload>;
