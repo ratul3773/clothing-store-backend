@@ -130,7 +130,7 @@ export const OrderValidation = {
   list: z.object({ query: listQuery }),
   cancel: z.object({
     params,
-    body: z.object({ version, reason: text(500).optional() }).strict(),
+    body: z.object({ version, reason: text(500) }).strict(),
   }),
   transition: z.object({
     params,
