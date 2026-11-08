@@ -73,6 +73,7 @@ model OrderLine {
   name      String
   quantity  Int
   unitPrice Int
+  imageUrl  String?
 
   order      Order            @relation(fields: [orderId], references: [id], onDelete: Restrict)
   components OrderComponent[]
@@ -87,6 +88,7 @@ model OrderComponent {
   variantId        String
   sku              String
   productName      String
+  imageUrl         String?
   color            String
   size             String
   quantity         Int

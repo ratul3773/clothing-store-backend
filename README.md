@@ -129,14 +129,20 @@ and rejects existing invalid stock balances. It has not been applied to the appl
 The repository ignores older migrations; restore/baseline that history before using
 `prisma migrate deploy` on a new environment. This order migration alone does not bootstrap the database.
 
+Admin manual-order customer selection uses `GET /api/v1/admin/orders/customer-search?q=...`.
+It requires an admin session and a 2–100 character query, and returns at most 20 active
+customer IDs with name, email, and phone. It does not load addresses or order history.
+
 All paths below start with `/api/v1`. Customer routes require a verified customer
 session; admin routes require a verified admin session. Guest checkout uses the existing
 `cart_token` cookie. Send the configured trusted `Origin` on mutations.
 
-- `POST /orders/preview`: `{ lines: [{ id, type: "VARIANT" | "COMBO" }], version,
-  destination: { address } | { addressId }, note? }`.
-- `POST /orders`: the same body plus `expected: { subtotal, discount, deliveryFee, total }`
-  copied from preview. Send a fresh `Idempotency-Key` header (16–128 URL-safe characters)
+- `GET /orders/delivery-policy`: public delivery rates `{ inside, outside, freeAbove }`, with no database query.
+- `POST /orders`: `{ lines: [{ id, type: "VARIANT" | "COMBO" }], version,
+  destination: { address } | { addressId }, note?, expected: { subtotal, discount, deliveryFee, total } }`.
+  Calculate the displayed totals from selected cart items and delivery policy. Placement validates
+  stock, visibility, prices and totals again; there is no preview endpoint.
+  Send a fresh `Idempotency-Key` header (16–128 URL-safe characters)
   for each intended order; reuse the same key/body to retry a lost response.
 - `GET /orders` and `GET /orders/:id`: the signed-in customer's orders and receipt/history.
   `POST /orders/:id/cancel` accepts `{ version, reason? }` while pending only.
@@ -144,13 +150,14 @@ session; admin routes require a verified admin session. Guest checkout uses the 
   for `GET /orders/:id/guest` and `POST /orders/:id/guest/cancel`; cancellation takes
   `{ version, reason? }`. Tokens must stay out of URLs and client logs. Save the returned token;
   idempotent recovery requires the original guest cart cookie to remain valid.
-- `POST /admin/orders/preview` and `POST /admin/orders` use explicit lines:
+- `POST /admin/orders` uses explicit lines:
   `{ type: "VARIANT", variantId, quantity }` or
   `{ type: "COMBO", comboId, quantity, selections: [{ comboItemId, variantId }] }`.
   Include the same destination, optional `customerId`, `note`, `discount`, `deliveryOverride`,
   and `adjustmentReason`. Source defaults to `ADMIN_MANUAL`; alternatives are `PHONE`,
   `WHATSAPP`, `FACEBOOK`, and `INSTAGRAM`. Status defaults to `CONFIRMED`; pending is also allowed.
   Creation requires expected totals and an idempotency key. Adjustments require a reason.
+  The UI summary uses the selected catalog items and delivery policy.
 - `GET /admin/orders` and `GET /admin/orders/:id`: summary list and full audit detail.
   Lists support `page`, `limit` (maximum 100), `status`, `source`, `q`, and ISO `from`/`to`.
 - `PATCH /admin/orders/:id/status`: `{ version, status, reason? }`. Cancellation and
@@ -173,6 +180,9 @@ shipment deducts stock, and pending cancellation releases it. Pending orders exp
 24 hours; cleanup runs at startup and every minute while the backend is running.
 Customer `ordersCount`/first/last timestamps count placements; `lifetimeValue` counts delivered totals.
 Keep `BETTER_AUTH_SECRET` stable for guest token recovery on idempotent retries.
+Deploy `20261108000000_order_images` after the order migration. New receipts use
+snapshotted image URLs for products and combo components, without live catalog queries.
+Older orders have null images and use placeholders; no historical images are invented.
 
 Run `npm run test:order`. Set `RUN_ORDER_DB_TESTS=true` to run real PostgreSQL tests;
 optionally provide `ORDER_TEST_DATABASE_URL`. They create and remove only a random

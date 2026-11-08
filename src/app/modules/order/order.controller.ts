@@ -5,6 +5,7 @@ import pick from "../../../utils/pick";
 import sendResponse from "../../../utils/sendResponse";
 import { OrderService, type OrderAccess } from "./order.service";
 import type { OrderListQuery } from "./order.validation";
+import config from "../../../config/env";
 
 const respond = (
   res: Response,
@@ -40,7 +41,7 @@ const guestAccess = (req: Request): OrderAccess => {
   return { kind: "guest", token: match[1]! };
 };
 
-const checkout = (manual: boolean, preview: boolean) =>
+const checkout = (manual: boolean) =>
   catchAsync(async (req, res) => {
     const context = manual
       ? { adminId: req.user.id }
@@ -48,13 +49,13 @@ const checkout = (manual: boolean, preview: boolean) =>
     const result = await OrderService.checkoutOrder(
       context,
       req.body,
-      preview ? undefined : idempotencyKey(req),
+      idempotencyKey(req),
     );
     respond(
       res,
       result,
-      preview ? "Order preview" : "Order placed",
-      preview ? 200 : 201,
+      "Order placed",
+      201,
     );
   });
 const detail = (access: (req: Request) => OrderAccess) =>
@@ -102,10 +103,15 @@ const cancel = (access: (req: Request) => OrderAccess) =>
   });
 
 export const OrderController = {
-  preview: checkout(false, true),
-  create: checkout(false, false),
-  manualPreview: checkout(true, true),
-  manualCreate: checkout(true, false),
+  customerSearch: catchAsync(async (req, res) => {
+    const { q } = req.validatedQuery as { q: string };
+    respond(res, await OrderService.searchCustomers(q), "Customers retrieved");
+  }),
+  deliveryPolicy: catchAsync(async (_req, res) => {
+    respond(res, config.orders.delivery, "Delivery policy");
+  }),
+  create: checkout(false),
+  manualCreate: checkout(true),
   detail: detail(customerAccess),
   guestDetail: detail(guestAccess),
   adminDetail: detail(adminAccess),

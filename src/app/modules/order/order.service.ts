@@ -1,6 +1,7 @@
 import { randomUUID, timingSafeEqual } from "node:crypto";
 import { Prisma } from "../../../generated/prisma/client";
 import type { ActorType, OrderStatus } from "../../../generated/prisma/enums";
+import { Role } from "../../../generated/prisma/enums";
 import ApiError from "../../../errors/ApiError";
 import { prisma } from "../../../lib/prisma";
 import { buildPaginationMeta, getPagination } from "../../../utils/pagination";
@@ -39,7 +40,7 @@ const customerWhere = (userId: string): Prisma.OrderWhereInput => ({
     user: {
       isDeleted: false,
       deletedAt: null,
-      role: "customer",
+      role: Role.customer,
       emailVerified: true,
     },
   },
@@ -67,7 +68,7 @@ const authorize = async (
     const admin = await tx.user.findFirst({
       where: {
         id: access.userId,
-        role: "admin",
+        role: Role.admin,
         isDeleted: false,
         deletedAt: null,
         emailVerified: true,
@@ -407,7 +408,22 @@ const expirePendingOrders = async () => {
   return processed;
 };
 
+const searchCustomers = async (q: string) => {
+  const phone = q.replace(/[\s()-]/g, "");
+  const customers = await prisma.customer.findMany({
+    where: { deletedAt: null, anonymizedAt: null, user: {
+      role: "customer", emailVerified: true, isDeleted: false, deletedAt: null,
+      OR: [{ name: { contains: q, mode: "insensitive" } }, { email: { contains: q, mode: "insensitive" } },
+        ...(/^[+\d]{2,}$/.test(phone) ? [{ phone: { contains: phone } }] : [])],
+    } },
+    select: { id: true, user: { select: { name: true, email: true, phone: true } } },
+    orderBy: { id: "asc" }, take: 20,
+  });
+  return customers.map(({ id, user }) => ({ id, ...user }));
+};
+
 export const OrderService = {
+  searchCustomers,
   checkoutOrder,
   getOrder,
   listOrders,

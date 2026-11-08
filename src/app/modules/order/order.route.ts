@@ -11,12 +11,11 @@ const limiter = (limit: number) => rateLimit({ windowMs: 15 * 60_000, limit,
   message: { success: false, message: "Too many order requests. Please try again later." },
 });
 const placementLimiter = limiter(10);
-const previewLimiter = limiter(60);
 const guestLimiter = limiter(30);
 const customer = [requireAuth, requireRole("customer")];
 
 export const OrderRoutes = Router();
-OrderRoutes.post("/preview", previewLimiter, resolveCart, validateRequest(validation.preview), OrderController.preview);
+OrderRoutes.get("/delivery-policy", OrderController.deliveryPolicy);
 OrderRoutes.post("/", placementLimiter, resolveCart, validateRequest(validation.create), OrderController.create);
 OrderRoutes.get("/", ...customer, validateRequest(validation.list), OrderController.list);
 OrderRoutes.get("/:id/guest", guestLimiter, validateRequest(validation.detail), OrderController.guestDetail);
@@ -26,9 +25,9 @@ OrderRoutes.post("/:id/cancel", ...customer, validateRequest(validation.cancel),
 
 export const AdminOrderRoutes = Router();
 AdminOrderRoutes.use(...requireAdmin);
-AdminOrderRoutes.post("/preview", validateRequest(validation.manualPreview), OrderController.manualPreview);
 AdminOrderRoutes.post("/", validateRequest(validation.manualCreate), OrderController.manualCreate);
 AdminOrderRoutes.get("/", validateRequest(validation.list), OrderController.adminList);
+AdminOrderRoutes.get("/customer-search", validateRequest(validation.customerSearch), OrderController.customerSearch);
 AdminOrderRoutes.get("/:id", validateRequest(validation.detail), OrderController.adminDetail);
 AdminOrderRoutes.patch("/:id/status", validateRequest(validation.transition), OrderController.transition);
 AdminOrderRoutes.post("/:id/return-receipt", validateRequest(validation.returnReceipt), OrderController.returnReceipt);

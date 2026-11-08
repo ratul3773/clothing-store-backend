@@ -37,7 +37,7 @@ const checkout = z.object({
   version,
   destination,
   note: text(1000).optional(),
-  expected: expected.optional(),
+  expected,
 }).strict();
 const manual = z.object({
   lines: z.array(catalogLine).min(1).max(CART_LINE_LIMIT),
@@ -49,7 +49,7 @@ const manual = z.object({
   deliveryOverride: money.optional(),
   adjustmentReason: text(500).optional(),
   note: text(1000).optional(),
-  expected: expected.optional(),
+  expected,
 }).strict().refine((input) => !(input.discount || input.deliveryOverride !== undefined) || !!input.adjustmentReason,
   "A reason is required for manual pricing adjustments");
 const params = z.object({ id });
@@ -65,10 +65,9 @@ const listQuery = z.object({
 }).strict().refine((q) => !q.from || !q.to || q.from <= q.to, "Invalid date range");
 
 export const OrderValidation = {
-  preview: z.object({ body: checkout }),
-  create: z.object({ body: checkout.refine((input) => !!input.expected, "Expected totals are required") }),
-  manualPreview: z.object({ body: manual }),
-  manualCreate: z.object({ body: manual.refine((input) => !!input.expected, "Expected totals are required") }),
+  customerSearch: z.object({ query: z.object({ q: z.string().trim().min(2).max(100) }).strict() }),
+  create: z.object({ body: checkout }),
+  manualCreate: z.object({ body: manual }),
   detail: z.object({ params }),
   list: z.object({ query: listQuery }),
   cancel: z.object({ params, body: z.object({ version, reason: text(500).optional() }).strict() }),

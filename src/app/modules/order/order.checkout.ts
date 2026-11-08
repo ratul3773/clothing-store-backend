@@ -35,6 +35,7 @@ import type {
   ShippingAddress,
 } from "./order.validation";
 import { catalogLine, shippingAddress } from "./order.validation";
+import { publicUrlFor } from "../upload/storage";
 
 const checkoutVariantSelect = (now: Date) =>
   ({
@@ -55,6 +56,10 @@ const checkoutVariantSelect = (now: Date) =>
         publishedAt: true,
         categoryId: true,
         regularPrice: true,
+        images: {
+          select: { colorId: true, provider: true, storageKey: true },
+          orderBy: [{ isPrimary: "desc" }, { sortOrder: "asc" }, { id: "asc" }],
+        },
         offers: {
           where: {
             isActive: true,
@@ -179,6 +184,20 @@ const loadOrderLines = async (
     }
     orderMoney(unitPrice);
     addVariantDemand(demand, components, line.quantity);
+    const snapshots = components.map(({ variant, quantity }) => {
+      const images = variant.product.images;
+      const image = images.find((item) => item.colorId === variant.colorId) ?? images[0];
+      return {
+        id: randomUUID(),
+        variantId: variant.id,
+        sku: variant.sku,
+        productName: variant.product.name,
+        imageUrl: image ? publicUrlFor(image.provider, image.storageKey) : null,
+        color: variant.color.name,
+        size: variant.size,
+        quantity: orderMoney(quantity * line.quantity),
+      };
+    });
     return {
       id: randomUUID(),
       type: line.type,
@@ -186,15 +205,8 @@ const loadOrderLines = async (
       name,
       quantity: line.quantity,
       unitPrice,
-      components: components.map(({ variant, quantity }) => ({
-        id: randomUUID(),
-        variantId: variant.id,
-        sku: variant.sku,
-        productName: variant.product.name,
-        color: variant.color.name,
-        size: variant.size,
-        quantity: orderMoney(quantity * line.quantity),
-      })),
+      imageUrl: snapshots.find((item) => item.imageUrl)?.imageUrl ?? null,
+      components: snapshots,
     };
   });
   for (const [id, quantity] of demand) {
@@ -252,7 +264,7 @@ const activeCustomerWhere = {
 export const checkoutOrder = async (
   context: { owner: CartOwner } | { adminId: string },
   input: CheckoutInput | ManualOrderInput,
-  key?: string,
+  key: string,
 ) => {
   const manual = "adminId" in context;
   const scope = manual
@@ -390,7 +402,6 @@ export const checkoutOrder = async (
       draft?.discount,
       draft?.deliveryOverride,
     );
-    if (!key) return { lines, ...address, ...totals };
     if (
       !input.expected ||
       Object.entries(totals).some(
@@ -400,7 +411,7 @@ export const checkoutOrder = async (
     )
       throw new ApiError(
         409,
-        "Order totals changed. Review a new preview before ordering.",
+        "Order totals changed. Review the updated items and delivery charges before ordering.",
       );
     const id = randomUUID();
     const token =
