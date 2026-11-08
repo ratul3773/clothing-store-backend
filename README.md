@@ -184,10 +184,26 @@ Deploy `20261108000000_order_images` after the order migration. New receipts use
 snapshotted image URLs for products and combo components, without live catalog queries.
 Older orders have null images and use placeholders; no historical images are invented.
 
+Orders now store a required JSONB `addressSnapshot`; order lines and physical components
+store their own required JSONB `productSnapshot`. The order module declares explicit
+interfaces and Zod schemas for these values. Charged unit prices live only in parent-line
+snapshots; stock identities, quantities, return counts and order totals remain columns.
+Responses retain their existing flat fields, including images, and lists expose only
+recipient name/phone. Snapshot JSON is validated when reading and writing. Placement
+continues to validate stock, visibility and expected totals without a preview API.
+
+Deploy `20261108010000_order_snapshots` after `20261108000000_order_images` during a
+short backend maintenance window: stop old backend instances, apply migrations,
+regenerate Prisma and start the updated backend. The transaction copies existing stored
+columns, checks required values and coverage, then removes replaced columns. It never
+rebuilds historical data from current catalog or saved-address records. Take a database
+backup before rollout; restoring the old backend requires restoring compatible columns.
+
 Run `npm run test:order`. Set `RUN_ORDER_DB_TESTS=true` to run real PostgreSQL tests;
 optionally provide `ORDER_TEST_DATABASE_URL`. They create and remove only a random
 `order_test_*` schema and test the actual order migration. No application records are used.
-The frontend checkout and manual-order demo are not wired to these endpoints yet.
+The isolated order suite also covers populated snapshot backfills and rollback on invalid
+historical values. Ordinary tests do not apply migrations to the application database.
 
 ## Available scripts
 

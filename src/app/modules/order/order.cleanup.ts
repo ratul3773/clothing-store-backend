@@ -13,7 +13,9 @@ export const startOrderCleanup = () => {
       running = false;
     }
   };
-  const timer = setInterval(() => { void clean(); }, 60_000);
+  const timer = setInterval(() => {
+    void clean();
+  }, 60_000);
   timer.unref();
   void clean();
   return () => clearInterval(timer);

@@ -30,13 +30,7 @@ model Order {
   source             OrderSource @default(WEBSITE)
   status             OrderStatus @default(PENDING_CONFIRMATION)
   version            Int         @default(0)
-  recipientName      String
-  recipientPhone     String
-  district           String
-  area               String
-  addressLine        String
-  postalCode         String?
-  zone               DeliveryZone
+  addressSnapshot    Json        @db.JsonB
   note               String?
   subtotal           Int
   discount           Int         @default(0)
@@ -66,14 +60,12 @@ model Order {
 }
 
 model OrderLine {
-  id        String        @id @default(uuid())
-  orderId   String
-  type      OrderLineType
-  catalogId String
-  name      String
-  quantity  Int
-  unitPrice Int
-  imageUrl  String?
+  id              String        @id @default(uuid())
+  orderId         String
+  type            OrderLineType
+  catalogId       String
+  quantity        Int
+  productSnapshot Json          @db.JsonB
 
   order      Order            @relation(fields: [orderId], references: [id], onDelete: Restrict)
   components OrderComponent[]
@@ -86,11 +78,7 @@ model OrderComponent {
   id               String @id @default(uuid())
   orderLineId      String
   variantId        String
-  sku              String
-  productName      String
-  imageUrl         String?
-  color            String
-  size             String
+  productSnapshot  Json   @db.JsonB
   quantity         Int
   returnedSellable Int    @default(0)
   returnedDamaged  Int    @default(0)

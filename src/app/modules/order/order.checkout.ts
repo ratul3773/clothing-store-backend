@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { Prisma,} from "../../../generated/prisma/client";
+import { Prisma } from "../../../generated/prisma/client";
 import { Role } from "../../../generated/prisma/enums";
 import config from "../../../config/env";
 import ApiError from "../../../errors/ApiError";
@@ -36,6 +36,11 @@ import type {
 } from "./order.validation";
 import { catalogLine, shippingAddress } from "./order.validation";
 import { publicUrlFor } from "../upload/storage";
+import {
+  addressSnapshotSchema,
+  componentSnapshotSchema,
+  productSnapshotSchema,
+} from "./order.snapshot";
 
 const checkoutVariantSelect = (now: Date) =>
   ({
@@ -186,15 +191,20 @@ const loadOrderLines = async (
     addVariantDemand(demand, components, line.quantity);
     const snapshots = components.map(({ variant, quantity }) => {
       const images = variant.product.images;
-      const image = images.find((item) => item.colorId === variant.colorId) ?? images[0];
+      const image =
+        images.find((item) => item.colorId === variant.colorId) ?? images[0];
       return {
         id: randomUUID(),
         variantId: variant.id,
-        sku: variant.sku,
-        productName: variant.product.name,
-        imageUrl: image ? publicUrlFor(image.provider, image.storageKey) : null,
-        color: variant.color.name,
-        size: variant.size,
+        productSnapshot: componentSnapshotSchema.parse({
+          sku: variant.sku,
+          productName: variant.product.name,
+          imageUrl: image
+            ? publicUrlFor(image.provider, image.storageKey)
+            : null,
+          color: variant.color.name,
+          size: variant.size,
+        }),
         quantity: orderMoney(quantity * line.quantity),
       };
     });
@@ -202,10 +212,14 @@ const loadOrderLines = async (
       id: randomUUID(),
       type: line.type,
       catalogId,
-      name,
       quantity: line.quantity,
-      unitPrice,
-      imageUrl: snapshots.find((item) => item.imageUrl)?.imageUrl ?? null,
+      productSnapshot: productSnapshotSchema.parse({
+        name,
+        unitPrice,
+        imageUrl:
+          snapshots.find((item) => item.productSnapshot.imageUrl)
+            ?.productSnapshot.imageUrl ?? null,
+      }),
       components: snapshots,
     };
   });
@@ -219,7 +233,8 @@ const loadOrderLines = async (
   }
   const subtotal = orderMoney(
     lines.reduce(
-      (sum, line) => sum + orderMoney(line.unitPrice * line.quantity),
+      (sum, line) =>
+        sum + orderMoney(line.productSnapshot.unitPrice * line.quantity),
       0,
     ),
   );
@@ -387,7 +402,11 @@ export const checkoutOrder = async (
       ];
     }
     catalogLines = catalogLines.map((line) => catalogLine.parse(line));
-    const address = await resolveAddress(tx, input.destination, customerId);
+    const destination = await resolveAddress(tx, input.destination, customerId);
+    const address = addressSnapshotSchema.parse({
+      ...destination,
+      postalCode: destination.postalCode ?? null,
+    });
     const now = new Date();
     const { lines, demand, subtotal } = await loadOrderLines(
       tx,
@@ -446,8 +465,7 @@ export const checkoutOrder = async (
         createdById: manual ? context.adminId : null,
         source: draft?.source ?? "WEBSITE",
         status: confirmed ? "CONFIRMED" : "PENDING_CONFIRMATION",
-        ...address,
-        postalCode: address.postalCode ?? null,
+        addressSnapshot: address,
         note: input.note ?? null,
         ...totals,
         expiresAt: confirmed

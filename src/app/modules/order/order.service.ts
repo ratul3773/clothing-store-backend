@@ -16,6 +16,7 @@ import {
 } from "./order.repository";
 import {
   mapOrder,
+  mapOrderSummary,
   orderDetailInclude,
   orderSummarySelect,
   type OrderDetail,
@@ -115,12 +116,13 @@ const listOrders = async (
       ? {
           OR: [
             { number: { contains: query.q, mode: "insensitive" } },
-            { recipientPhone: { contains: query.q } },
+            { addressSnapshot: { path: ["recipientPhone"], string_contains: query.q } },
             ...(access.kind === "admin"
               ? [
                   {
-                    recipientName: {
-                      contains: query.q,
+                    addressSnapshot: {
+                      path: ["recipientName"],
+                      string_contains: query.q,
                       mode: "insensitive" as const,
                     },
                   },
@@ -143,7 +145,7 @@ const listOrders = async (
     ],
     { isolationLevel: "RepeatableRead" },
   );
-  return { data, meta: buildPaginationMeta(total, page, limit) };
+  return { data: data.map(mapOrderSummary), meta: buildPaginationMeta(total, page, limit) };
 };
 
 const actorFor = (

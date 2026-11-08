@@ -51,12 +51,7 @@ const checkout = (manual: boolean) =>
       req.body,
       idempotencyKey(req),
     );
-    respond(
-      res,
-      result,
-      "Order placed",
-      201,
-    );
+    respond(res, result, "Order placed", 201);
   });
 const detail = (access: (req: Request) => OrderAccess) =>
   catchAsync(async (req, res) => {

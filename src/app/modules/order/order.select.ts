@@ -1,4 +1,5 @@
 import { Prisma } from "../../../generated/prisma/client";
+import { addressSnapshotSchema, componentSnapshotSchema, productSnapshotSchema, readOrderSnapshot } from "./order.snapshot";
 
 export const orderSummarySelect = {
   id: true,
@@ -7,8 +8,7 @@ export const orderSummarySelect = {
   source: true,
   status: true,
   version: true,
-  recipientName: true,
-  recipientPhone: true,
+  addressSnapshot: true,
   subtotal: true,
   discount: true,
   deliveryFee: true,
@@ -32,6 +32,12 @@ export type OrderDetail = Prisma.OrderGetPayload<{
   include: typeof orderDetailInclude;
 }>;
 
+export const mapOrderSummary = (order: Prisma.OrderGetPayload<{ select: typeof orderSummarySelect }>) => {
+  const { addressSnapshot, ...summary } = order;
+  const { recipientName, recipientPhone } = readOrderSnapshot(addressSnapshotSchema, addressSnapshot);
+  return { ...summary, recipientName, recipientPhone };
+};
+
 export const mapOrder = (order: OrderDetail, admin = false) => {
   const {
     idempotencyScope,
@@ -40,10 +46,21 @@ export const mapOrder = (order: OrderDetail, admin = false) => {
     guestTokenHash,
     createdById,
     history,
+    addressSnapshot,
+    lines,
     ...receipt
   } = order;
   return {
     ...receipt,
+    ...readOrderSnapshot(addressSnapshotSchema, addressSnapshot),
+    lines: lines.map(({ productSnapshot, components, ...line }) => ({
+      ...line,
+      ...readOrderSnapshot(productSnapshotSchema, productSnapshot),
+      components: components.map(({ productSnapshot, ...component }) => ({
+        ...component,
+        ...readOrderSnapshot(componentSnapshotSchema, productSnapshot),
+      })),
+    })),
     ...(admin ? { createdById } : {}),
     history: history.map(
       ({
