@@ -25,7 +25,7 @@ export const orderDetailInclude = {
     orderBy: { id: "asc" },
     include: { components: { orderBy: { id: "asc" } } },
   },
-  history: { orderBy: [{ createdAt: "asc" }, { id: "asc" }] },
+  history: { orderBy: [{ createdAt: "desc" }, { id: "desc" }] },
 } satisfies Prisma.OrderInclude;
 
 export const adminOrderDetailInclude = {

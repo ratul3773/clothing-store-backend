@@ -285,7 +285,7 @@ const transitionLocked = async (
     {
       ...updated,
       lines,
-      history: [...order.history, { ...event, orderId: order.id, actor: actorUser ?? null }],
+      history: [{ ...event, orderId: order.id, actor: actorUser ?? null }, ...order.history],
     },
     access.kind === "admin",
   );
