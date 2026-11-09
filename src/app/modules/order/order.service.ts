@@ -1,6 +1,6 @@
 import { randomUUID, timingSafeEqual } from "node:crypto";
 import { Prisma } from "../../../generated/prisma/client";
-import type { ActorType, OrderStatus } from "../../../generated/prisma/enums";
+import { ActorType, OrderStatus } from "../../../generated/prisma/enums";
 import { Role } from "../../../generated/prisma/enums";
 import ApiError from "../../../errors/ApiError";
 import { prisma } from "../../../lib/prisma";
@@ -116,7 +116,12 @@ const listOrders = async (
       ? {
           OR: [
             { number: { contains: query.q, mode: "insensitive" } },
-            { addressSnapshot: { path: ["recipientPhone"], string_contains: query.q } },
+            {
+              addressSnapshot: {
+                path: ["recipientPhone"],
+                string_contains: query.q,
+              },
+            },
             ...(access.kind === "admin"
               ? [
                   {
@@ -145,7 +150,10 @@ const listOrders = async (
     ],
     { isolationLevel: "RepeatableRead" },
   );
-  return { data: data.map(mapOrderSummary), meta: buildPaginationMeta(total, page, limit) };
+  return {
+    data: data.map(mapOrderSummary),
+    meta: buildPaginationMeta(total, page, limit),
+  };
 };
 
 const actorFor = (
@@ -218,11 +226,11 @@ const transitionLocked = async (
         tx,
         [...demand].map(([variantId, quantity]) => ({
           variantId,
-          onHand: status === "SHIPPED" ? -quantity : 0,
+          onHand: status === OrderStatus.SHIPPED ? -quantity : 0,
           reserved: -quantity,
         })),
         order.id,
-        status === "SHIPPED" ? "DEDUCT" : "RELEASE",
+        status === OrderStatus.SHIPPED ? "DEDUCT" : "RELEASE",
         actor,
       );
     }
@@ -234,7 +242,7 @@ const transitionLocked = async (
     event:
       access.kind === "system"
         ? "EXPIRED"
-        : status === "RETURNED"
+        : status === OrderStatus.RETURNED
           ? "RETURN_RECEIVED"
           : "STATUS_CHANGED",
     fromStatus: order.status,
@@ -249,11 +257,11 @@ const transitionLocked = async (
       status,
       version: { increment: 1 },
       expiresAt: null,
-      ...(status === "DELIVERED" ? { paidAt: now, deliveredAt: now } : {}),
+      ...(status === OrderStatus.DELIVERED ? { paidAt: now, deliveredAt: now } : {}),
       history: { create: event },
     },
   });
-  if (status === "DELIVERED" && order.customerId)
+  if (status === OrderStatus.DELIVERED && order.customerId)
     await tx.customer.update({
       where: { id: order.customerId },
       data: { lifetimeValue: { increment: BigInt(order.total) } },
@@ -305,18 +313,18 @@ const changeStatus = async (
     if (order.version !== input.version)
       throw new ApiError(409, "Order changed. Reload before updating.");
     if (
-      order.status === "PENDING_CONFIRMATION" &&
+      order.status === OrderStatus.PENDING_CONFIRMATION &&
       order.expiresAt &&
       order.expiresAt <= new Date()
     ) {
       const data = await transitionLocked(
         tx,
         order,
-        "CANCELLED",
+        OrderStatus.CANCELLED,
         { kind: "system" },
         "Pending order expired after 24 hours",
       );
-      return { data, expired: input.status !== "CANCELLED" };
+      return { data, expired: input.status !== OrderStatus.CANCELLED };
     }
     return {
       data: await transitionLocked(
@@ -342,7 +350,7 @@ const expirePendingOrders = async () => {
   for (let batch = 0; batch < 10; batch++) {
     const count = await orderTransaction(async (tx) => {
       const ids = await tx.$queryRaw<Array<{ id: string }>>`
-        SELECT id FROM orders WHERE status = 'PENDING_CONFIRMATION' AND "expiresAt" <= ${new Date()}
+        SELECT id FROM orders WHERE status = ${OrderStatus.PENDING_CONFIRMATION} AND "expiresAt" <= ${new Date()}
         ORDER BY "expiresAt", id LIMIT 20 FOR UPDATE SKIP LOCKED
       `;
       if (!ids.length) return 0;
@@ -386,14 +394,14 @@ const expirePendingOrders = async () => {
         await tx.order.update({
           where: { id: order.id },
           data: {
-            status: "CANCELLED",
+            status: OrderStatus.CANCELLED,
             version: { increment: 1 },
             expiresAt: null,
             history: {
               create: {
                 event: "EXPIRED",
-                fromStatus: "PENDING_CONFIRMATION",
-                toStatus: "CANCELLED",
+                fromStatus: OrderStatus.PENDING_CONFIRMATION,
+                toStatus: OrderStatus.CANCELLED,
                 actorType: "SYSTEM",
                 reason: "Pending order expired after 24 hours",
               },
@@ -413,13 +421,29 @@ const expirePendingOrders = async () => {
 const searchCustomers = async (q: string) => {
   const phone = q.replace(/[\s()-]/g, "");
   const customers = await prisma.customer.findMany({
-    where: { deletedAt: null, anonymizedAt: null, user: {
-      role: "customer", emailVerified: true, isDeleted: false, deletedAt: null,
-      OR: [{ name: { contains: q, mode: "insensitive" } }, { email: { contains: q, mode: "insensitive" } },
-        ...(/^[+\d]{2,}$/.test(phone) ? [{ phone: { contains: phone } }] : [])],
-    } },
-    select: { id: true, user: { select: { name: true, email: true, phone: true } } },
-    orderBy: { id: "asc" }, take: 20,
+    where: {
+      deletedAt: null,
+      anonymizedAt: null,
+      user: {
+        role: "customer",
+        emailVerified: true,
+        isDeleted: false,
+        deletedAt: null,
+        OR: [
+          { name: { contains: q, mode: "insensitive" } },
+          { email: { contains: q, mode: "insensitive" } },
+          ...(/^[+\d]{2,}$/.test(phone)
+            ? [{ phone: { contains: phone } }]
+            : []),
+        ],
+      },
+    },
+    select: {
+      id: true,
+      user: { select: { name: true, email: true, phone: true } },
+    },
+    orderBy: { id: "asc" },
+    take: 20,
   });
   return customers.map(({ id, user }) => ({ id, ...user }));
 };
