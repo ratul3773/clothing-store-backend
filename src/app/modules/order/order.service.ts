@@ -18,8 +18,10 @@ import {
   mapOrder,
   mapOrderSummary,
   orderDetailInclude,
+  adminOrderDetailInclude,
   orderSummarySelect,
   type OrderDetail,
+  type OrderHistoryActor,
 } from "./order.select";
 import type {
   OrderListQuery,
@@ -74,10 +76,10 @@ const authorize = async (
         deletedAt: null,
         emailVerified: true,
       },
-      select: { id: true },
+      select: { id: true, name: true, email: true },
     });
     if (!admin) throw new ApiError(403, "Admin account is not active");
-    return;
+    return admin;
   }
 };
 
@@ -88,7 +90,7 @@ const getOrder = async (id: string, access: OrderAccess) =>
         id,
         ...(access.kind === "customer" ? customerWhere(access.userId) : {}),
       },
-      include: orderDetailInclude,
+      include: access.kind === "admin" ? adminOrderDetailInclude : orderDetailInclude,
     });
     if (!order) throw new ApiError(404, "Order not found");
     await authorize(tx, order, access);
@@ -178,6 +180,7 @@ const transitionLocked = async (
   access: OrderAccess,
   reason?: string,
   receipt?: ReturnReceiptInput["components"],
+  actorUser?: OrderHistoryActor,
 ) => {
   assertOrderTransition(order.status, status);
   const components = order.lines.flatMap((line) => line.components);
@@ -282,7 +285,7 @@ const transitionLocked = async (
     {
       ...updated,
       lines,
-      history: [...order.history, { ...event, orderId: order.id }],
+      history: [...order.history, { ...event, orderId: order.id, actor: actorUser ?? null }],
     },
     access.kind === "admin",
   );
@@ -300,10 +303,10 @@ const changeStatus = async (
         id,
         ...(access.kind === "customer" ? customerWhere(access.userId) : {}),
       },
-      include: orderDetailInclude,
+      include: access.kind === "admin" ? adminOrderDetailInclude : orderDetailInclude,
     });
     if (!order) throw new ApiError(404, "Order not found");
-    await authorize(tx, order, access);
+    const actorUser = await authorize(tx, order, access);
     if (
       access.kind !== "admin" &&
       access.kind !== "system" &&
@@ -334,6 +337,7 @@ const changeStatus = async (
         access,
         input.reason,
         "components" in input ? input.components : undefined,
+        actorUser,
       ),
       expired: false,
     };

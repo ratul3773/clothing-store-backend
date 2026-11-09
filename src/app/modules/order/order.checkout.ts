@@ -27,7 +27,7 @@ import {
   lockOrderVariants,
   orderTransaction,
 } from "./order.repository";
-import { mapOrder, orderDetailInclude } from "./order.select";
+import { mapOrder, orderDetailInclude, adminOrderDetailInclude } from "./order.select";
 import type {
   CatalogLineInput,
   CheckoutInput,
@@ -330,7 +330,7 @@ export const checkoutOrder = async (
             idempotencyKey: key,
           },
         },
-        include: orderDetailInclude,
+        include: manual ? adminOrderDetailInclude : orderDetailInclude,
       });
       if (existing) {
         if (existing.requestHash !== requestHash)
@@ -506,7 +506,7 @@ export const checkoutOrder = async (
           ],
         },
       },
-      include: orderDetailInclude,
+      include: manual ? adminOrderDetailInclude : orderDetailInclude,
     });
     if (cart) {
       if (selectedItems.length)

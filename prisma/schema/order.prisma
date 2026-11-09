@@ -103,6 +103,7 @@ model OrderHistory {
   createdAt  DateTime     @default(now())
 
   order Order @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  actor User? @relation("OrderHistoryActor", fields: [actorId], references: [id], onDelete: SetNull)
 
   @@index([orderId, createdAt, id])
   @@map("order_history")

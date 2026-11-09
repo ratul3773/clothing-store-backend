@@ -28,9 +28,21 @@ export const orderDetailInclude = {
   history: { orderBy: [{ createdAt: "asc" }, { id: "asc" }] },
 } satisfies Prisma.OrderInclude;
 
-export type OrderDetail = Prisma.OrderGetPayload<{
+export const adminOrderDetailInclude = {
+  ...orderDetailInclude,
+  history: {
+    ...orderDetailInclude.history,
+    include: { actor: { select: { name: true, email: true } } },
+  },
+} satisfies Prisma.OrderInclude;
+
+export type OrderHistoryActor = { name: string; email: string };
+type StoredOrderDetail = Prisma.OrderGetPayload<{
   include: typeof orderDetailInclude;
 }>;
+export type OrderDetail = Omit<StoredOrderDetail, "history"> & {
+  history: (StoredOrderDetail["history"][number] & { actor?: OrderHistoryActor | null })[];
+};
 
 export const mapOrderSummary = (order: Prisma.OrderGetPayload<{ select: typeof orderSummarySelect }>) => {
   const { addressSnapshot, ...summary } = order;
@@ -71,6 +83,7 @@ export const mapOrder = (order: OrderDetail, admin = false) => {
         createdAt,
         actorType,
         actorId,
+        actor,
         reason,
       }) => ({
         id,
@@ -78,7 +91,7 @@ export const mapOrder = (order: OrderDetail, admin = false) => {
         fromStatus,
         toStatus,
         createdAt,
-        ...(admin ? { actorType, actorId, reason } : {}),
+        ...(admin ? { actorType, actorId, reason, actor: actor ? { name: actor.name, email: actor.email } : null } : {}),
       }),
     ),
   };
