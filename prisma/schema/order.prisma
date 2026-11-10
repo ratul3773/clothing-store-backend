@@ -1,0 +1,110 @@
+enum OrderStatus {
+  PENDING_CONFIRMATION
+  CONFIRMED
+  SHIPPED
+  DELIVERED
+  DELIVERY_FAILED
+  RETURNED
+  CANCELLED
+}
+
+enum OrderSource {
+  WEBSITE
+  ADMIN_MANUAL
+  WHATSAPP
+  FACEBOOK
+  INSTAGRAM
+  PHONE
+}
+
+enum OrderLineType {
+  VARIANT
+  COMBO
+}
+
+model Order {
+  id                 String      @id @default(uuid())
+  number             String      @unique
+  customerId         String?
+  createdById        String?
+  source             OrderSource @default(WEBSITE)
+  status             OrderStatus @default(PENDING_CONFIRMATION)
+  version            Int         @default(0)
+  addressSnapshot    Json        @db.JsonB
+  note               String?
+  subtotal           Int
+  discount           Int         @default(0)
+  deliveryFee        Int
+  total              Int
+  paymentMethod      String      @default("COD")
+  paidAt             DateTime?
+  expiresAt          DateTime?
+  deliveredAt        DateTime?
+  idempotencyScope   String
+  idempotencyKey     String
+  requestHash        String
+  guestTokenHash     String?
+  createdAt          DateTime    @default(now())
+  updatedAt          DateTime    @updatedAt
+
+  customer Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  createdBy User?    @relation("OrderCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  lines     OrderLine[]
+  history   OrderHistory[]
+
+  @@unique([idempotencyScope, idempotencyKey])
+  @@index([customerId, createdAt, id])
+  @@index([status, createdAt, id])
+  @@index([status, expiresAt])
+  @@map("orders")
+}
+
+model OrderLine {
+  id              String        @id @default(uuid())
+  orderId         String
+  type            OrderLineType
+  catalogId       String
+  quantity        Int
+  productSnapshot Json          @db.JsonB
+
+  order      Order            @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  components OrderComponent[]
+
+  @@index([orderId, id])
+  @@map("order_lines")
+}
+
+model OrderComponent {
+  id               String @id @default(uuid())
+  orderLineId      String
+  variantId        String
+  productSnapshot  Json   @db.JsonB
+  quantity         Int
+  returnedSellable Int    @default(0)
+  returnedDamaged  Int    @default(0)
+
+  line    OrderLine @relation(fields: [orderLineId], references: [id], onDelete: Restrict)
+  variant Variant   @relation(fields: [variantId], references: [id], onDelete: Restrict)
+
+  @@index([orderLineId])
+  @@index([variantId])
+  @@map("order_components")
+}
+
+model OrderHistory {
+  id         String       @id @default(uuid())
+  orderId    String
+  event      String
+  fromStatus OrderStatus?
+  toStatus   OrderStatus
+  actorType  ActorType
+  actorId    String?
+  reason     String?
+  createdAt  DateTime     @default(now())
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  actor User? @relation("OrderHistoryActor", fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([orderId, createdAt, id])
+  @@map("order_history")
+}

@@ -34,7 +34,7 @@ app.use(
       callback(new Error("Origin is not allowed by CORS"));
     },
     credentials: true,
-    allowedHeaders: ["Content-Type", "Authorization", "If-Match"],
+    allowedHeaders: ["Content-Type", "Authorization", "If-Match", "Idempotency-Key"],
   }),
 );
 

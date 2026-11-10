@@ -176,6 +176,7 @@ model Variant {
   notifyRequests StockNotifyRequest[]
   cartItems      CartItem[]
   comboSelections CartComboSelection[]
+  orderComponents OrderComponent[]
 
   @@unique([productId, colorId, size])
   @@index([productId, isActive])

@@ -8,6 +8,7 @@ import { CartRoutes } from "../modules/cart/cart.route";
 import { ComboRoutes, AdminComboRoutes } from "../modules/combo/combo.route";
 import { AddressRoutes } from "../modules/address/address.route";
 import { requireTrustedOrigin } from "../middlewares/originGuard";
+import { OrderRoutes, AdminOrderRoutes } from "../modules/order/order.route";
 
 const router = Router();
 router.use(requireTrustedOrigin);
@@ -20,5 +21,7 @@ router.use("/admin/combos", AdminComboRoutes);
 router.use("/admin/categories", AdminCategoryRoutes);
 router.use("/admin/products", AdminProductRoutes);
 router.use("/addresses", AddressRoutes);
+router.use("/orders", OrderRoutes);
+router.use("/admin/orders", AdminOrderRoutes);
 
 export default router;
